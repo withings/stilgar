@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<head>
+	<title>Rudderstack JS SDK</title>
+	<meta charset="utf-8" />
+
+	<script>
+		rudderanalytics = window.rudderanalytics = [];
+		var methods = [
+			"load",
+			"page",
+			"track",
+			"identify",
+			"alias",
+			"group",
+			"ready",
+			"reset",
+			"getAnonymousId",
+			"setAnonymousId",
+			"getUserId",
+			"getUserTraits",
+			"getGroupId",
+			"getGroupTraits",
+			"startSession",
+			"endSession"
+		];
+
+		for (var i = 0; i < methods.length; i++) {
+			var method = methods[i];
+			rudderanalytics[method] = (function (methodName) {
+				return function () {
+					rudderanalytics.push(
+						[methodName].concat(Array.prototype.slice.call(arguments))
+					);
+				};
+			})(method);
+		}
+
+		rudderanalytics.load('thisissecret', 'http://localhost:8081/', {
+			configUrl: 'http://localhost:8081/'
+		});
+		rudderanalytics.page("Hey", "Hey page", {
+			page_custom_arg: "testarg"
+		});
+
+		/*
+		rudderanalytics.track(
+			"Order Completed", {
+				revenue: 77.6,
+				currency: "USD",
+			},
+			() => {
+				console.log("track sent");
+			}
+		);
+		*/
+	</script>
+	<script src="https://cdn.rudderlabs.com/v1.1/rudder-analytics.min.js"></script>
+</head>
+<body>
+	Hello, World!
+</body>
+</html>
