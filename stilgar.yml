@@ -1,0 +1,21 @@
+# configures the API
+server:
+  ip: 0.0.0.0  # the IP to bind to
+  port: 8080  # the port to listen on
+  origins:  # the list of allowed origins (CORS)
+    - http://localhost:8082
+
+# configures the worker which forwards events to destinations
+forwarder:
+  beanstalk: beanstalkd:11300  # where to find beanstalkd
+  schedule: "* * * * * * *"  # the CRON at which forwarding happens
+                             # (supports seconds, see `cron` crate)
+
+# configures the destinations
+destinations:
+  - type: blackhole  # logs and drops all events
+  - type: clickhouse  # send to clickhouse
+    host: clickhouse
+    user: myuser
+    password: mypassword
+    database: mydatabase

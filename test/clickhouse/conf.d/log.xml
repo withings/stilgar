@@ -1,0 +1,18 @@
+<clickhouse>
+  <logger>
+    <!-- Possible levels [1]:
+         - none (turns off logging)
+         - fatal
+         - critical
+         - error
+         - warning
+         - notice
+         - information
+         - debug
+         - trace
+         - test (not for production usage)
+    -->
+
+    <level>information</level>
+  </logger>
+</clickhouse>

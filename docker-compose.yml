@@ -1,0 +1,46 @@
+version: '3'
+services:
+
+  stilgar:
+    build: .
+    tty: true
+    volumes:
+      - .:/home/stilgar
+    ports:
+      - 8081:8080
+    environment:
+      - "RUST_LOG=info,stilgar=debug"
+
+  beanstalkd:
+    image: schickling/beanstalkd
+    expose:
+      - 11300
+    ports:
+      - 11300:11300
+
+  clickhouse:
+    image: bitnami/clickhouse
+    environment:
+      - CLICKHOUSE_ADMIN_USER=myuser
+      - CLICKHOUSE_ADMIN_PASSWORD=mypassword
+    volumes:
+      - clickhouse_data:/bitnami/clickhouse
+      - ./test/clickhouse/conf.d:/etc/clickhouse-server/conf.d
+    expose:
+      - 8123
+      - 9000
+    ports:
+      - 8123:8123
+      - 9000:9000
+
+  js:
+    image: python:3
+    volumes:
+      - ./test/js:/home/js
+    working_dir: /home/js
+    command: python3 -m http.server
+    ports:
+      - 8082:8000
+
+volumes:
+  clickhouse_data:

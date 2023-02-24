@@ -1,0 +1,39 @@
+[package]
+name = "stilgar"
+description = "A lightweight, no-fuss, drop-in replacement for Rudderstack"
+authors = [
+    "Withings <platform_ops@withings.com>",
+    "Julien Kritter <julien.kritter@withings.com",
+]
+readme = "README.md"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
+async-stream = "0.3"
+tonic = "0.8"
+prost = "0.11"
+indoc = "1.0"
+lazy_static = "1.4"
+itertools = "0.10"
+serde_with = "2.2"
+directories = "4"
+twox-hash = "1.6"
+thiserror = "1"
+async-trait = "0.1"
+env_logger = "0.10"
+serde_json = "1.0"
+serde_yaml = "0.9"
+warp = "0.3"
+cron = "0.12"
+log = "0.4"
+
+[build-dependencies]
+tonic-build = "0.8"
+
+[profile.docker]
+inherits = 'dev'
