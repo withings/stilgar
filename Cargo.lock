@@ -1433,6 +1433,7 @@ dependencies = [
  "cron",
  "directories",
  "env_logger",
+ "http",
  "indoc",
  "itertools",
  "lazy_static",

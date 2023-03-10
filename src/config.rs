@@ -32,6 +32,9 @@ pub struct Server {
     /// The port we're going to listen on
     #[serde(default = "defaults::server_port")]
     pub port: u16,
+    /// The write key (can be left empty)
+    #[serde(default)]
+    pub write_key: Option<String>,
     /// A list of allowed origins (CORS)
     #[serde(default)]
     pub origins: Vec<String>,
@@ -43,6 +46,7 @@ impl Default for Server {
         return Self {
             ip: defaults::server_ip(),
             port: defaults::server_port(),
+            write_key: None,
             origins: vec!(),
         }
     }

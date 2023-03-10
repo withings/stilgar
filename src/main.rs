@@ -5,7 +5,6 @@ mod routes;
 mod beanstalk;
 mod forwarder;
 
-
 use crate::beanstalk::{Beanstalk, BeanstalkProxy};
 use crate::forwarder::events_forwarder;
 use crate::destinations::init_destinations;
@@ -19,6 +18,7 @@ use warp::Filter;
 use warp::http::Method;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::collections::HashMap;
 
 /// Stilgar's entry point: welcome!
 #[tokio::main]
@@ -86,7 +86,9 @@ async fn main() {
     /* Source config route to mock the Rudderstack control plane */
     let source_config_route = warp::get()
         .and(warp::path!("sourceConfig"))
-        .map(|| String::from("{\"source\": {\"enabled\": true}}"));
+        .and(with_write_key(configuration.server.write_key))
+        .and(warp::query::<HashMap<String, String>>())
+        .and_then(routes::source_config);
 
     /* Prepare the API and forwarder tasks */
     let use_proxy = bstk_web.proxy();
@@ -131,6 +133,10 @@ fn with_schedule(schedule: cron::Schedule) -> impl Filter<Extract = (cron::Sched
 
 fn with_beanstalk(proxy: BeanstalkProxy) -> impl Filter<Extract = (BeanstalkProxy,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || proxy.clone())
+}
+
+fn with_write_key(write_key: Option<String>) -> impl Filter<Extract = (Option<String>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || write_key.clone())
 }
 
 #[derive(Debug)]
