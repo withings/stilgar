@@ -105,7 +105,7 @@ async fn main() {
         async {
             /* once the PUT channel is ready (has processed the USE command), start taking requests */
             match use_proxy.use_tube("stilgar").await {
-                Ok(_) => webservice.await,
+                Ok(_) => webservice.await, // TODO rate limit this
                 Err(e) => {
                     log::error!("failed to use beanstalkd tube on webservice connection: {}", e);
                     std::process::exit(1);

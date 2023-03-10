@@ -13,6 +13,6 @@
          - test (not for production usage)
     -->
 
-    <level>information</level>
+    <level>notice</level>
   </logger>
 </clickhouse>

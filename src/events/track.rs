@@ -9,8 +9,8 @@ use std::collections::HashMap;
 #[serde(rename_all = "camelCase")]
 pub struct Track {
     #[serde(flatten)]
-    common: CommonFields,
+    pub common: CommonFields,
 
-    event: String,
-    properties: HashMap<String, serde_json::Value>,
+    pub event: String,
+    pub properties: HashMap<String, serde_json::Value>,
 }

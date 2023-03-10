@@ -83,13 +83,28 @@ impl Destination for Clickhouse {
         Ok(clickhouse_arc)
     }
 
-    /// TODO: process alias event
+    /// Sends an alias event to cache
     async fn alias(&self, alias: &Alias) -> StorageResult {
+        let new_id = alias.user_id.as_ref().unwrap_or(&alias.common.anonymous_id);
+        if new_id == &alias.previous_id {
+            return Ok(())
+        }
+
+        let mut kv = Self::map_common_fields(&alias.common);
+        kv.insert("previous_id".into(), Some(alias.previous_id.clone()));
+        kv.insert("user_id".into(), Some(new_id.clone()));
+        self.insert("aliases".into(), kv).await;
         Ok(())
     }
 
-    /// TODO: process group event
+    /// Sends a group mapping to cache
     async fn group(&self, group: &Group) -> StorageResult {
+        let mut kv = Self::map_common_fields(&group.common);
+        kv.insert("group_id".into(), Some(group.group_id.clone()));
+        for (key, value) in &group.traits {
+            kv.insert(format!("context_traits_{}", key), Self::json_to_string(value));
+        }
+        self.insert("groups".into(), kv).await;
         Ok(())
     }
 
@@ -109,13 +124,26 @@ impl Destination for Clickhouse {
         Ok(())
     }
 
-    /// TODO: process screen event
+    /// Sends a screen event to cache
     async fn store_screen(&self, screen: &Screen) -> StorageResult {
+        let mut kv = Self::map_common_fields(&screen.common);
+        kv.insert("name".into(), screen.name.as_ref().map(|n| n.clone()));
+        for (key, value) in &screen.properties {
+            kv.insert(key.into(), Self::json_to_string(value));
+        }
+        self.insert("screens".into(), kv).await;
         Ok(())
     }
 
-    /// TODO: process track event
+    /// Sends a custom (track) event to cache
     async fn store_track(&self, track: &Track) -> StorageResult {
+        let track_kv = Self::map_common_fields(&track.common);
+        let mut subtrack_kv = track_kv.clone();
+        self.insert("tracks".into(), track_kv).await;
+        for (key, value) in &track.properties {
+            subtrack_kv.insert(key.into(), Self::json_to_string(value));
+        }
+        self.insert(track.event.clone(), subtrack_kv).await; // TODO do not trust!
         Ok(())
     }
 }

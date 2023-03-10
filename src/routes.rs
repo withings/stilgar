@@ -2,6 +2,7 @@ use crate::beanstalk::BeanstalkProxy;
 use crate::events::any::AnyEvent;
 use crate::forwarder::delay_from_schedule;
 
+use chrono::Utc;
 use serde_json;
 use warp;
 use cron;
@@ -29,6 +30,9 @@ async fn receive_and_queue(beanstalk: BeanstalkProxy, schedule: cron::Schedule, 
     }
 }
 
-pub async fn any_event(beanstalk: BeanstalkProxy, schedule: cron::Schedule, any_event: AnyEvent) -> Result<impl warp::Reply, warp::Rejection> {
+/// Actual route: adds the received_at field and tries to reserialise for beanstalkd
+pub async fn any_event(beanstalk: BeanstalkProxy, schedule: cron::Schedule, mut event_json: serde_json::Value) -> Result<impl warp::Reply, warp::Rejection> {
+    event_json["receivedAt"] = serde_json::Value::String(Utc::now().to_rfc3339());
+    let any_event: AnyEvent = serde_json::from_value(event_json).map_err(|_| warp::reject::not_found())?;
     receive_and_queue(beanstalk, schedule, serde_json::to_string(&any_event)).await
 }

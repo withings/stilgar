@@ -9,9 +9,9 @@ use std::collections::HashMap;
 #[serde(rename_all = "camelCase")]
 pub struct Screen {
     #[serde(flatten)]
-    common: CommonFields,
+    pub common: CommonFields,
 
     #[serde(default)]
-    name: Option<String>,
-    properties: HashMap<String, serde_json::Value>,
+    pub name: Option<String>,
+    pub properties: HashMap<String, serde_json::Value>,
 }

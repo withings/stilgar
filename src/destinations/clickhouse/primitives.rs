@@ -1,5 +1,4 @@
 use crate::events::common::CommonFields;
-use crate::destinations::clickhouse::ddl;
 use crate::destinations::clickhouse::grpc;
 use crate::destinations::clickhouse::{Clickhouse, StorageResult, StorageError};
 
@@ -9,9 +8,9 @@ use tokio::sync::{mpsc, oneshot};
 use async_stream::stream;
 use serde_json;
 
-/// A schema-altering query message (CREATE, ALTER)
+/// A query without I/O (no input rows like INSERT or results like SELECT)
 #[derive(Debug)]
-pub struct DDLQuery {
+pub struct NonInteractiveQuery {
     /// The query string
     pub query: String,
     /// A channel for the response
@@ -19,27 +18,27 @@ pub struct DDLQuery {
 }
 
 /// Convenience type: rows as return by the query task for a SELECT
-pub type ReadQueryRows = Vec<Vec<String>>;
+pub type ResultSet = Vec<Vec<String>>;
 /// Convenience type: return type for a read query message
-pub type QueryResult = Result<ReadQueryRows, StorageError>;
+pub type SelectResult = Result<ResultSet, StorageError>;
 /// A read query (SELECT)
 #[derive(Debug)]
-pub struct ReadQuery {
+pub struct SelectQuery {
     /// The query string
     query: String,
     /// A channel for the response
-    return_tx: oneshot::Sender<QueryResult>,
+    return_tx: oneshot::Sender<SelectResult>,
 }
 
 /// Convenience type: row receiver (INSERTs)
-type WriteQueryReceiver = mpsc::Receiver<Vec<Option<String>>>;
-/// A write query (INSERT)
+type InsertQueryReceiver = mpsc::Receiver<Vec<Option<String>>>;
+/// An INSERT query
 #[derive(Debug)]
-pub struct WriteQuery {
+pub struct InsertQuery {
     /// The query string
     pub query: String,
     /// A channel to receive rows as a stream
-    pub rows_channel: WriteQueryReceiver,
+    pub rows_channel: InsertQueryReceiver,
     /// A channel for the response
     pub return_tx: oneshot::Sender<StorageResult>,
 }
@@ -47,9 +46,9 @@ pub struct WriteQuery {
 /// An enum for any query sent over the channel
 #[derive(Debug)]
 pub enum GenericQuery {
-    DDL(DDLQuery),
-    Read(ReadQuery),
-    Write(WriteQuery),
+    NIO(NonInteractiveQuery),
+    Select(SelectQuery),
+    Insert(InsertQuery),
 }
 
 impl Clickhouse {
@@ -63,21 +62,21 @@ impl Clickhouse {
         query_info
     }
 
-    /// Convenience function: prepares a QueryInfo object for a read
-    fn prepare_read(&self, query: &ReadQuery) -> grpc::QueryInfo {
+    /// Convenience function: prepares a QueryInfo object for a SELECT
+    fn prepare_select(&self, query: &SelectQuery) -> grpc::QueryInfo {
         self.prepare_base(format!("{} FORMAT TSV", query.query.clone()))
     }
 
-    /// Convenience function: prepares a QueryInfo object for a write
-    fn prepare_write(&self, query: &WriteQuery) -> grpc::QueryInfo {
+    /// Convenience function: prepares a QueryInfo object for an INSERT
+    fn prepare_insert(&self, query: &InsertQuery) -> grpc::QueryInfo {
         let mut query_info = self.prepare_base(format!("{} FORMAT TSV", query.query.clone()));
         query_info.input_data_delimiter = vec![10u8];
         query_info.next_query_info = true;
         query_info
     }
 
-    /// Executes a DDL query and returns the response
-    async fn ddl_query(client: &mut grpc::Client, query: grpc::QueryInfo) -> StorageResult {
+    /// Executes a non-interactive query and returns the response
+    async fn nio_query(client: &mut grpc::Client, query: grpc::QueryInfo) -> StorageResult {
         let execute = client.execute_query(query.clone()).await
             .map_err(|e| StorageError::Connectivity(e.to_string()))?;
 
@@ -92,11 +91,11 @@ impl Clickhouse {
     /// Stilgar hardly even does SELECTs and only does so on small
     /// result sets. For this reason, this function does not stream the
     /// results: it waits for everything and returns the lot as a Vec
-    async fn read_query(client: &mut grpc::Client, query: grpc::QueryInfo) -> QueryResult {
+    async fn run_select_query(client: &mut grpc::Client, query: grpc::QueryInfo) -> SelectResult {
         let mut execute = client.execute_query_with_stream_output(query.clone()).await
             .map_err(|e| StorageError::Connectivity(e.to_string()))?;
         let stream = execute.get_mut();
-        let mut rows: ReadQueryRows = vec!();
+        let mut rows: ResultSet = vec!();
 
         /* Fetch blocks from Clickhouse */
         while let Some(block) = stream.message().await.map_err(|e| StorageError::Connectivity(e.to_string()))? {
@@ -108,7 +107,7 @@ impl Clickhouse {
              * TODO: reverse the escaping after parsing? */
             let block_payload = String::from_utf8(block.output)
                 .map_err(|e| StorageError::QueryFailure(0, e.to_string(), query.query.clone()))?;
-            let mut block_rows: ReadQueryRows = block_payload
+            let mut block_rows: ResultSet = block_payload
                 .split('\n')
                 .filter(|line| line.len() > 0)
                 .map(|row| row.split('\t').map(|column| String::from(column)).collect())
@@ -124,10 +123,10 @@ impl Clickhouse {
     /// Writing can involve a lot more rows than reading, so Stilgar
     /// uses a stream here. The user task is expected to provide a
     /// mpsc channel over which it will send the rows one by one.
-    async fn write_query(
+    async fn run_insert_query(
         client: &mut grpc::Client,
         initial: grpc::QueryInfo,
-        mut rows_channel: WriteQueryReceiver) -> StorageResult {
+        mut rows_channel: InsertQueryReceiver) -> StorageResult {
         let query_str = initial.query.clone();
 
         /* Transform the channel into a stream understood by the gRPC functions
@@ -182,37 +181,37 @@ impl Clickhouse {
 
         while let Some(command) = rx.recv().await {
             match command {
-                GenericQuery::DDL(ddl) => {
+                GenericQuery::NIO(ddl) => {
                     let query = self.prepare_base(ddl.query);
-                    ddl.return_tx.send(Self::ddl_query(&mut client, query).await)
+                    ddl.return_tx.send(Self::nio_query(&mut client, query).await)
                         .expect("failed to forward read query result to querying task");
                 },
-                GenericQuery::Read(read) => {
-                    let query = self.prepare_read(&read);
-                    read.return_tx.send(Self::read_query(&mut client, query).await)
+                GenericQuery::Select(read) => {
+                    let query = self.prepare_select(&read);
+                    read.return_tx.send(Self::run_select_query(&mut client, query).await)
                         .expect("failed to forward read query result to querying task");
                 },
-                GenericQuery::Write(write) => {
-                    let query = self.prepare_write(&write);
-                    write.return_tx.send(Self::write_query(&mut client, query, write.rows_channel).await)
+                GenericQuery::Insert(write) => {
+                    let query = self.prepare_insert(&write);
+                    write.return_tx.send(Self::run_insert_query(&mut client, query, write.rows_channel).await)
                         .expect("failed to forward write query result to querying task");
                 }
             }
         }
     }
 
-    /// Convenience function: run a DDL query, forget about messages and channels
-    pub async fn ddl(&self, query: String) -> StorageResult {
+    /// Convenience function: run a non-interactive query, forget about messages and channels
+    pub async fn nio(&self, query: String) -> StorageResult {
         let (tx, rx) = oneshot::channel::<StorageResult>();
-        self.query.send(GenericQuery::DDL(DDLQuery { query , return_tx: tx })).await
-            .expect("failed to communicate DDL query to the clickhouse channel runner");
-        rx.await.expect("failed to receive DDL query result from clickhouse channel runner")
+        self.query.send(GenericQuery::NIO(NonInteractiveQuery { query , return_tx: tx })).await
+            .expect("failed to communicate non-interactive query to the clickhouse query task");
+        rx.await.expect("failed to receive non-interactive query result from the clickhouse query task")
     }
 
     /// Convenience function: run a SELECT, forget about messages and channels
-    pub async fn select(&self, query: String) -> QueryResult {
-        let (tx, rx) = oneshot::channel::<QueryResult>();
-        self.query.send(GenericQuery::Read(ReadQuery { query, return_tx: tx })).await
+    pub async fn select(&self, query: String) -> SelectResult {
+        let (tx, rx) = oneshot::channel::<SelectResult>();
+        self.query.send(GenericQuery::Select(SelectQuery { query, return_tx: tx })).await
             .expect("failed to communicate read query to the clickhouse channel runner");
         rx.await.expect("failed to receive read query result from clickhouse channel runner")
     }
@@ -244,32 +243,13 @@ impl Clickhouse {
         )
     }
 
-    /// Creates the basic tables used by Stilgar
-    pub async fn create_tables(&self) -> StorageResult {
-        let initial_ddl = [
-            ("pages", ddl::PAGES.to_string()),
-            ("screens", ddl::SCREENS.to_string()),
-            ("identifies", ddl::IDENTIFIES.to_string()),
-            ("tracks", ddl::TRACKS.to_string()),
-            ("groups", ddl::GROUPS.to_string()),
-        ];
-
-        for (table_name, ddl_query) in initial_ddl.iter() {
-            if !(self.table_exists(table_name).await?) {
-                log::info!("table `{}` does not exist yet, creating it with basic schema", table_name);
-                self.ddl(ddl_query.clone()).await?;
-            }
-        }
-
-        Ok(())
-    }
-
     /// Maps known event fields (CommonFields) to string for TSV input
     pub fn map_common_fields(common: &CommonFields) -> HashMap<String, Option<String>> {
         HashMap::from([
             ("anonymous_id".into(), Some(common.anonymous_id.clone())),
             ("user_id".into(), common.user_id.as_ref().map(|v| v.clone())),
             ("channel".into(), Some(common.channel.clone())),
+            ("received_at".into(), Some(common.received_at.timestamp().to_string())),
             ("original_timestamp".into(), Some(common.original_timestamp.timestamp().to_string())),
             ("sent_at".into(), Some(common.sent_at.timestamp().to_string())),
             ("id".into(), Some(common.message_id.clone())),

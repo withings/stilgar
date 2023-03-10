@@ -212,3 +212,8 @@ Note that waits are not busy waits: task 2 will *yield* and leave the
 CPU available for any other task which may need it to run (eg. the
 owner task). This works whatever the threading situation is: think
 concurrency, not parallelism.
+
+## Contributing
+
+See [doc/contributing.md](doc/contributing.md) next for more details
+about the developer setup.

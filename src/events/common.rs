@@ -16,6 +16,7 @@ pub struct CommonFields {
     pub user_id: Option<String>,
     pub channel: String,
     pub context: Context,
+    pub received_at: DateTime<Utc>,
     pub original_timestamp: DateTime<Utc>,
     pub sent_at: DateTime<Utc>,
     pub integrations: HashMap<String, serde_json::Value>,

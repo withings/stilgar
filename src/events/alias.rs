@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct Alias {
     #[serde(flatten)]
-    common: CommonFields,
+    pub common: CommonFields,
 
     #[serde(default)]
-    user_id: Option<String>,
-    previous_id: String,
+    pub user_id: Option<String>,
+    pub previous_id: String,
 }

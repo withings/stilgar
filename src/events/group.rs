@@ -11,8 +11,8 @@ use std::collections::HashMap;
 #[serde(rename_all = "camelCase")]
 pub struct Group {
     #[serde(flatten)]
-    common: CommonFields,
+    pub common: CommonFields,
 
-    group_id: String,
-    traits: HashMap<String, serde_json::Value>,
+    pub group_id: String,
+    pub traits: HashMap<String, serde_json::Value>,
 }
