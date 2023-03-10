@@ -25,6 +25,7 @@ pub struct Clickhouse {
     database: String,
     username: String,
     password: String,
+    cache_threshold: usize,
 }
 
 /// Implementing the Destination trait for Clickhouse
@@ -48,6 +49,11 @@ impl Destination for Clickhouse {
         let database = settings
             .get("database").ok_or(StorageError::Initialisation("missing database parameter".to_string()))?
             .as_str().ok_or(StorageError::Initialisation("database parameter should be a string".to_string()))?;
+        let cache_threshold = settings
+            .get("cache_threshold")
+            .map(|v| v.as_u64().map(|u| u as usize))
+            .unwrap_or(Some(cache::DEFAULT_CACHE_THRESHOLD))
+            .ok_or(StorageError::Initialisation("cache_threshold parameter should be a positive number".to_string()))?;
 
         let client = grpc::Client::connect(format!("http://{}:{}", host, port)).await
             .map_err(|e| StorageError::Connectivity(e.to_string()))?;
@@ -62,6 +68,7 @@ impl Destination for Clickhouse {
             username: username.to_string(),
             password: password.to_string(),
             database: database.to_string(),
+            cache_threshold
         };
         let clickhouse_arc = Arc::new(clickhouse);
 

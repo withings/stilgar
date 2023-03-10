@@ -9,8 +9,8 @@ use tokio::sync::{mpsc, oneshot};
 use itertools::Itertools;
 use log;
 
-/// Number of events which need to accumulate in cache before write queries happen
-const CACHE_THRESHOLD: usize = 1000;
+/// Default number of events which need to accumulate in cache before write queries happen
+pub const DEFAULT_CACHE_THRESHOLD: usize = 10000;
 
 /// Interesting Clickhouse error codes
 const ERR_NO_SUCH_TABLE: i64 = 60;
@@ -60,7 +60,7 @@ impl Clickhouse {
             return_tx: write_tx
         };
 
-        log::debug!("will try to write cache entry ({} row(s)) for columns: {}", cache_entry.rows.len(), &columns);
+        log::debug!("will try to write cache entry ({} row(s)) in table {} for columns: {}", cache_entry.rows.len(), cache_entry.table, &columns);
 
         /* Send the query to the query task */
         self.query.send(GenericQuery::Insert(write_query)).await.expect("failed to send write query across query channel");
@@ -98,7 +98,7 @@ impl Clickhouse {
             entry.rows.push(values); /* add the row to cache */
             cache_size += 1;
 
-            if cache_size < CACHE_THRESHOLD {
+            if cache_size < self.cache_threshold {
                 continue;
             }
 
