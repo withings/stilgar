@@ -36,23 +36,25 @@
 		}
 
 		rudderanalytics.load('thisissecret', 'http://localhost:8081/', {
-			configUrl: 'http://localhost:8081/'
-		});
-		rudderanalytics.page("Hey", "Hey page", {
-			page_custom_arg: "testarg"
+			configUrl: 'http://localhost:8081/',
 		});
 
-		/*
-		rudderanalytics.track(
-			"Order Completed", {
-				revenue: 77.6,
-				currency: "USD",
-			},
-			() => {
-				console.log("track sent");
-			}
-		);
-		*/
+		rudderanalytics.page('My page category', 'My page name', {
+			'page_awesomeness': 2,
+		});
+
+		rudderanalytics.track("someone_loads_the_page", {
+			"who": "jkr",
+			"when": "now",
+			"why": "just because",
+		});
+
+		rudderanalytics.identify('internal-userid-1', {
+			'first_name': 'John',
+			'last_name': 'Doe',
+			'age': 44,
+			'is_ops': true,
+		});
 	</script>
 	<script src="https://cdn.rudderlabs.com/v1.1/rudder-analytics.min.js"></script>
 </head>

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// Context fields
@@ -21,6 +22,8 @@ pub struct Context {
     pub timezone: Option<String>,
     #[serde(default)]
     pub user_agent: Option<String>,
+    #[serde(default)]
+    pub traits: HashMap<String, serde_json::Value>,
 }
 
 /// App-related fields

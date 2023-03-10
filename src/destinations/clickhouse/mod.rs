@@ -108,8 +108,22 @@ impl Destination for Clickhouse {
         Ok(())
     }
 
-    /// TODO: process identify event
+    /// Sends an identify event to cache and updates the users table
     async fn identify(&self, identify: &Identify) -> StorageResult {
+        let mut kv = Self::map_common_fields(&identify.common);
+        for (key, value) in &identify.common.context.traits {
+            kv.insert(format!("context_traits_{}", key), Self::json_to_string(value));
+        }
+        let mut users_kv = kv.clone(); /* we don't want user_id in the users table */
+
+        /* store the identify event itself, with 'user_id' set */
+        kv.insert("user_id".into(), identify.common.user_id.as_ref().map(|i| i.clone()));
+        self.insert("identifies".into(), kv).await;
+
+        /* upsert the user, with 'id' this time (table is an AggregatingMergeTree) */
+        let any_id = identify.common.user_id.as_ref().unwrap_or(&identify.common.anonymous_id);
+        users_kv.insert("id".into(), Some(any_id.clone()));
+        self.insert("users".into(), users_kv).await;
         Ok(())
     }
 

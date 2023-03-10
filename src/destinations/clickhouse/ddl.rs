@@ -104,6 +104,19 @@ lazy_static! {
     ", event_basics = EVENT_BASICS.to_string(), context = CONTEXT.to_string()};
 
 
+    pub static ref USERS: String = formatdoc! {"
+    CREATE TABLE users
+    (
+        `id` String,
+        `received_at` DateTime,
+        {context}
+    )
+    ENGINE = AggregatingMergeTree
+    PARTITION BY toDate(received_at)
+    ORDER BY id;
+    ", context = CONTEXT.to_string()};
+
+
     pub static ref TRACKS: String = formatdoc! {"
     CREATE TABLE tracks
     (
@@ -139,6 +152,7 @@ impl Clickhouse {
             ("pages", PAGES.to_string()),
             ("screens", SCREENS.to_string()),
             ("identifies", IDENTIFIES.to_string()),
+            ("users", USERS.to_string()),
             ("tracks", TRACKS.to_string()),
             ("groups", GROUPS.to_string()),
         ];
