@@ -1,5 +1,5 @@
 use crate::beanstalk::BeanstalkProxy;
-use crate::events::any::AnyEvent;
+use crate::events::any::{AnyEvent, EventOrBatch};
 use crate::forwarder::delay_from_schedule;
 
 use std::collections::HashMap;
@@ -9,10 +9,34 @@ use warp;
 use http;
 use cron;
 
-/// Generic event route handler: parse the event and push it to beanstalkd
-async fn receive_and_queue(beanstalk: BeanstalkProxy, schedule: cron::Schedule, job: serde_json::Result<String>) -> Result<impl warp::Reply, warp::Rejection> {
+/// Rewrites a single event's received_at
+fn overwrite_event_received_at(event: &mut AnyEvent) {
+    let now = Utc::now();
+    match event {
+        AnyEvent::Alias(alias) => alias.common.received_at = Some(now),
+        AnyEvent::Group(group) => group.common.received_at = Some(now),
+        AnyEvent::Identify(group) => group.common.received_at = Some(now),
+        AnyEvent::Page(group) => group.common.received_at = Some(now),
+        AnyEvent::Screen(group) => group.common.received_at = Some(now),
+        AnyEvent::Track(group) => group.common.received_at = Some(now),
+    }
+}
+
+/// Rewrites an event's received_at, going into batches if necessary
+fn overwrite_any_received_at(event_or_batch: &mut EventOrBatch) {
+    match event_or_batch {
+        EventOrBatch::Batch(batch_event) => for event in batch_event.batch.iter_mut() {
+            overwrite_event_received_at(event)
+        },
+        EventOrBatch::Event(event) => overwrite_event_received_at(event)
+    }
+}
+
+/// Actual event route: adds the received_at field and tries to reserialise for beanstalkd
+pub async fn event_or_batch(beanstalk: BeanstalkProxy, schedule: cron::Schedule, mut event_or_batch: EventOrBatch) -> Result<impl warp::Reply, warp::Rejection> {
     /* Check that we were able to re-serialise the job for beanstalkd */
-    let job_payload = match job {
+    overwrite_any_received_at(&mut event_or_batch);
+    let job_payload = match serde_json::to_string(&event_or_batch) {
         Ok(j) => j,
         Err(e) => {
             log::debug!("failed to re-serialise event: {}", e);
@@ -30,13 +54,6 @@ async fn receive_and_queue(beanstalk: BeanstalkProxy, schedule: cron::Schedule, 
             Ok(warp::reply::with_status("KO", warp::http::StatusCode::INTERNAL_SERVER_ERROR))
         },
     }
-}
-
-/// Actual event route: adds the received_at field and tries to reserialise for beanstalkd
-pub async fn any_event(beanstalk: BeanstalkProxy, schedule: cron::Schedule, mut event_json: serde_json::Value) -> Result<impl warp::Reply, warp::Rejection> {
-    event_json["receivedAt"] = serde_json::Value::String(Utc::now().to_rfc3339());
-    let any_event: AnyEvent = serde_json::from_value(event_json).map_err(|_| warp::reject::not_found())?;
-    receive_and_queue(beanstalk, schedule, serde_json::to_string(&any_event)).await
 }
 
 /// Control plane mock route

@@ -1,4 +1,4 @@
-use crate::events::any::AnyEvent;
+use crate::events::any::{AnyEvent, EventOrBatch};
 
 use crate::beanstalk::BeanstalkProxy;
 use crate::destinations::Destinations;
@@ -41,7 +41,7 @@ pub async fn events_forwarder(beanstalk: BeanstalkProxy, destinations: &Destinat
         }
 
         /* Make sure it's a proper event */
-        let event: AnyEvent = match serde_json::from_str(&job.payload) {
+        let event_or_batch: EventOrBatch = match serde_json::from_str(&job.payload) {
             Ok(ev) => ev,
             Err(err) => {
                 log::warn!("could not re-parse job: {}", err);
@@ -50,8 +50,8 @@ pub async fn events_forwarder(beanstalk: BeanstalkProxy, destinations: &Destinat
         };
 
         /* If it's a batch event, split it and reschedule each subevent individually (now) */
-        if let AnyEvent::BatchEvent(batch) = event {
-            for subevent in batch.iter() {
+        if let EventOrBatch::Batch(batch_event) = event_or_batch {
+            for subevent in batch_event.batch.iter() {
                 match serde_json::to_string(&subevent) {
                     Ok(subevent_str) => if let Err(e) = beanstalk.put(subevent_str, 0).await {
                         log::warn!("failed to submit subevent from batch: {}", e);
@@ -66,14 +66,16 @@ pub async fn events_forwarder(beanstalk: BeanstalkProxy, destinations: &Destinat
 
         /* Forward the event to all known destinations using Destination methods */
         for destination in destinations.iter() {
-            let storage_result = match &event {
-                AnyEvent::BatchEvent(_batch) => panic!("a batch event has made it through unsplit, this should not happen"),
-                AnyEvent::AliasEvent(alias) => destination.alias(alias).await,
-                AnyEvent::GroupEvent(group) => destination.group(group).await,
-                AnyEvent::IdentifyEvent(identify) => destination.identify(identify).await,
-                AnyEvent::PageEvent(page) => destination.store_page(page).await,
-                AnyEvent::ScreenEvent(screen) => destination.store_screen(screen).await,
-                AnyEvent::TrackEvent(track) => destination.store_track(track).await,
+            let storage_result = match &event_or_batch {
+                EventOrBatch::Event(event) => match event {
+                    AnyEvent::Alias(alias) => destination.alias(alias).await,
+                    AnyEvent::Group(group) => destination.group(group).await,
+                    AnyEvent::Identify(identify) => destination.identify(identify).await,
+                    AnyEvent::Page(page) => destination.store_page(page).await,
+                    AnyEvent::Screen(screen) => destination.store_screen(screen).await,
+                    AnyEvent::Track(track) => destination.store_track(track).await,
+                },
+                _ => panic!("a batch event has made it through unsplit, this should not happen"),
             };
 
             log::debug!("forwarded to destination: {}", destination);

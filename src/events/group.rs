@@ -13,6 +13,8 @@ pub struct Group {
     #[serde(flatten)]
     pub common: CommonFields,
 
+    #[serde(default)]
+    pub user_id: Option<String>,
     pub group_id: String,
     pub traits: HashMap<String, serde_json::Value>,
 }

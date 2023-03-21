@@ -11,6 +11,8 @@ pub struct Track {
     #[serde(flatten)]
     pub common: CommonFields,
 
+    #[serde(default)]
+    pub user_id: Option<String>,
     pub event: String,
     pub properties: HashMap<String, serde_json::Value>,
 }

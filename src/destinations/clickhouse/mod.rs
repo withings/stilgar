@@ -94,12 +94,13 @@ impl Destination for Clickhouse {
     async fn alias(&self, alias: &Alias) -> StorageResult {
         let new_id = alias.user_id.as_ref().unwrap_or(&alias.common.anonymous_id);
         if new_id == &alias.previous_id {
+            log::debug!("user IDs are identical in alias call, ignoring");
             return Ok(())
         }
 
         let mut kv = Self::map_common_fields(&alias.common);
+        kv.insert("user_id".into(), alias.user_id.as_ref().map(|i| i.clone()));
         kv.insert("previous_id".into(), Some(alias.previous_id.clone()));
-        kv.insert("user_id".into(), Some(new_id.clone()));
         self.insert("aliases".into(), kv).await;
         Ok(())
     }
@@ -107,6 +108,7 @@ impl Destination for Clickhouse {
     /// Sends a group mapping to cache
     async fn group(&self, group: &Group) -> StorageResult {
         let mut kv = Self::map_common_fields(&group.common);
+        kv.insert("user_id".into(), group.user_id.as_ref().map(|i| i.clone()));
         kv.insert("group_id".into(), Some(group.group_id.clone()));
         for (key, value) in &group.traits {
             kv.insert(format!("context_traits_{}", key), Self::json_to_string(value));
@@ -124,12 +126,11 @@ impl Destination for Clickhouse {
         let mut users_kv = kv.clone(); /* we don't want user_id in the users table */
 
         /* store the identify event itself, with 'user_id' set */
-        kv.insert("user_id".into(), identify.common.user_id.as_ref().map(|i| i.clone()));
+        kv.insert("user_id".into(), Some(identify.user_id.clone()));
         self.insert("identifies".into(), kv).await;
 
         /* upsert the user, with 'id' this time (table is an AggregatingMergeTree) */
-        let any_id = identify.common.user_id.as_ref().unwrap_or(&identify.common.anonymous_id);
-        users_kv.insert("id".into(), Some(any_id.clone()));
+        users_kv.insert("id".into(), Some(identify.user_id.clone()));
         self.insert("users".into(), users_kv).await;
         Ok(())
     }
@@ -137,6 +138,7 @@ impl Destination for Clickhouse {
     /// Sends a page event to cache
     async fn store_page(&self, page: &Page) -> StorageResult {
         let mut kv = Self::map_common_fields(&page.common);
+        kv.insert("user_id".into(), page.user_id.as_ref().map(|i| i.clone()));
         kv.insert("name".into(), page.name.as_ref().map(|n| n.clone()));
         for (key, value) in &page.properties {
             kv.insert(key.into(), Self::json_to_string(value));
@@ -148,6 +150,7 @@ impl Destination for Clickhouse {
     /// Sends a screen event to cache
     async fn store_screen(&self, screen: &Screen) -> StorageResult {
         let mut kv = Self::map_common_fields(&screen.common);
+        kv.insert("user_id".into(), screen.user_id.as_ref().map(|i| i.clone()));
         kv.insert("name".into(), screen.name.as_ref().map(|n| n.clone()));
         for (key, value) in &screen.properties {
             kv.insert(key.into(), Self::json_to_string(value));
@@ -158,7 +161,9 @@ impl Destination for Clickhouse {
 
     /// Sends a custom (track) event to cache
     async fn store_track(&self, track: &Track) -> StorageResult {
-        let track_kv = Self::map_common_fields(&track.common);
+        let mut track_kv = Self::map_common_fields(&track.common);
+        track_kv.insert("event".into(), Some(track.event.clone()));
+        track_kv.insert("user_id".into(), track.user_id.as_ref().map(|i| i.clone()));
         let mut subtrack_kv = track_kv.clone();
         self.insert("tracks".into(), track_kv).await;
         for (key, value) in &track.properties {

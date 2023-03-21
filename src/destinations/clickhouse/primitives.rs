@@ -243,13 +243,27 @@ impl Clickhouse {
         )
     }
 
+    /// Fetches a name/type mapping for the columns of a table
+    pub async fn table_is_aggregating(&self, table_name: &str) -> Result<bool, StorageError> {
+        let query = format!(
+            "SELECT engine FROM system.tables WHERE database = '{}' AND table = '{}'",
+            self.database, table_name
+        );
+
+        let engines = self.select(query.clone()).await?;
+        if engines.is_empty() {
+            return Err(StorageError::QueryFailure(0, format!("table {} does not exist", table_name), query));
+        }
+
+        Ok(engines[0][0].starts_with("Aggregating"))
+    }
+
     /// Maps known event fields (CommonFields) to string for TSV input
     pub fn map_common_fields(common: &CommonFields) -> HashMap<String, Option<String>> {
         HashMap::from([
             ("anonymous_id".into(), Some(common.anonymous_id.clone())),
-            ("user_id".into(), common.user_id.as_ref().map(|v| v.clone())),
             ("channel".into(), Some(common.channel.clone())),
-            ("received_at".into(), Some(common.received_at.timestamp().to_string())),
+            ("received_at".into(), Some(common.received_at.expect("missing received_at field in event after processing").timestamp().to_string())),
             ("original_timestamp".into(), Some(common.original_timestamp.timestamp().to_string())),
             ("sent_at".into(), Some(common.sent_at.timestamp().to_string())),
             ("id".into(), Some(common.message_id.clone())),

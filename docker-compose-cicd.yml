@@ -1,0 +1,32 @@
+version: '3'
+services:
+
+  beanstalkd:
+    extends:
+      file: docker-compose.yml
+      service: beanstalkd
+
+  clickhouse:
+    extends:
+      file: docker-compose.yml
+      service: clickhouse
+
+  stilgar:
+    build: .
+    volumes:
+      - ./target/x86_64-unknown-linux-musl/release/stilgar:/bin/stilgar
+      - ./stilgar.yml:/etc/stilgar.yml
+    command: "bash -c 'while ! nc -z clickhouse 9100; do sleep 1; done; /bin/stilgar /etc/stilgar.yml'"
+    environment:
+      - "RUST_LOG=info,stilgar=debug"
+
+  tester:
+    hostname: tester
+    build: test/tester
+    depends_on:
+      - stilgar
+      - beanstalkd
+      - clickhouse
+
+volumes:
+  clickhouse_data:

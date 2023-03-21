@@ -8,4 +8,6 @@ use serde::{Deserialize, Serialize};
 pub struct Identify {
     #[serde(flatten)]
     pub common: CommonFields,
+
+    pub user_id: String,
 }

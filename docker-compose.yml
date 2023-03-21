@@ -9,10 +9,12 @@ services:
     ports:
       - 8081:8080
     environment:
-      - "RUST_LOG=info,stilgar=debug"
+      - "RUST_LOG=debug,stilgar=debug"
+      # - "RUST_LOG=info,stilgar=debug"  # to focus on Stilgar logs instead
 
   beanstalkd:
     image: schickling/beanstalkd
+    tty: true
     expose:
       - 11300
     ports:
@@ -20,6 +22,7 @@ services:
 
   clickhouse:
     image: bitnami/clickhouse
+    tty: true
     environment:
       - CLICKHOUSE_ADMIN_USER=myuser
       - CLICKHOUSE_ADMIN_PASSWORD=mypassword
@@ -35,12 +38,26 @@ services:
 
   js:
     image: python:3
+    tty: true
     volumes:
       - ./test/js:/home/js
     working_dir: /home/js
     command: python3 -m http.server
     ports:
       - 8082:8000
+
+  tester:
+    hostname: tester
+    build: test/tester
+    tty: true
+    profiles:
+      - donotstart
+    volumes:
+      - ./test/tester:/home/tester/tester
+    depends_on:
+      - stilgar
+      - beanstalkd
+      - clickhouse
 
 volumes:
   clickhouse_data:

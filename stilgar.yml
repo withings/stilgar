@@ -20,4 +20,4 @@ destinations:
     user: myuser
     password: mypassword
     database: mydatabase
-    cache_threshold: 12
+    cache_threshold: 1

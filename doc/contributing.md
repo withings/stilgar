@@ -20,6 +20,10 @@ This setup will include:
 The development environment uses the configuration file at the root of
 the repository (`stilgar.yml`).
 
+To run the test container within your development environment, run:
+
+    $ docker compose up --no-deps tester
+
 ## Adding destinations
 
 Implementing a new destination requires 3 steps:

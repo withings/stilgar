@@ -12,11 +12,10 @@ use std::collections::HashMap;
 #[serde(rename_all = "camelCase")]
 pub struct CommonFields {
     pub anonymous_id: String,
-    #[serde(default)]
-    pub user_id: Option<String>,
     pub channel: String,
     pub context: Context,
-    pub received_at: DateTime<Utc>,
+    #[serde(default)]
+    pub received_at: Option<DateTime<Utc>>,
     pub original_timestamp: DateTime<Utc>,
     pub sent_at: DateTime<Utc>,
     pub integrations: HashMap<String, serde_json::Value>,

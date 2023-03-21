@@ -1,5 +1,4 @@
 use crate::events::alias::Alias;
-use crate::events::batch::Batch;
 use crate::events::group::Group;
 use crate::events::identify::Identify;
 use crate::events::page::Page;
@@ -13,17 +12,29 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type")]
 pub enum AnyEvent {
     #[serde(rename = "alias")]
-    AliasEvent(Alias),
-    #[serde(rename = "batch")]
-    BatchEvent(Batch),
+    Alias(Alias),
     #[serde(rename = "group")]
-    GroupEvent(Group),
+    Group(Group),
     #[serde(rename = "identify")]
-    IdentifyEvent(Identify),
+    Identify(Identify),
     #[serde(rename = "page")]
-    PageEvent(Page),
+    Page(Page),
     #[serde(rename = "screen")]
-    ScreenEvent(Screen),
+    Screen(Screen),
     #[serde(rename = "track")]
-    TrackEvent(Track),
+    Track(Track),
+}
+
+/// A batch event, as sent to /v1/batch
+#[derive(Serialize, Deserialize)]
+pub struct Batch {
+    pub batch: Vec<AnyEvent>,
+}
+
+/// Convenience enum: accepts any event or a batch of events
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EventOrBatch {
+    Event(AnyEvent),
+    Batch(Batch),
 }

@@ -1,0 +1,59 @@
+from inspect import getframeinfo, stack
+import clickhouse_connect
+import socket
+import time
+
+
+def get_service(name):
+    services = {
+        "stilgar": 8080,
+        "beanstalkd": 11300,
+        "clickhouse": 9100,
+    }
+
+    try:
+        return services[name]
+    except KeyError:
+        raise Exception("Unknown test service: %s" % name)
+
+
+def get_service_url(name, *args):
+    url_path = '/' + '/'.join(args)
+    return "http://%s:%d%s" % (name, get_service(name), url_path)
+
+
+def wait_for_all():
+    while True:
+        all_up = True
+        for service in ('stilgar', 'beanstalkd', 'clickhouse'):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                parser_port = get_service(service)
+                sock.connect((service, parser_port))
+                sock.close()
+            except socket.error:
+                all_up = False
+        if all_up:
+            return
+        time.sleep(1)
+
+
+Clickhouse = clickhouse_connect.get_client(
+    host='clickhouse',
+    username='myuser',
+    password='mypassword',
+    database='mydatabase'
+)
+
+
+def reset():
+    for tbl in ["aliases", "pages", "screens", "identifies", "tracks", "groups"]:
+        Clickhouse.command("TRUNCATE TABLE IF EXISTS %s" % tbl)
+    for tbl in ["custom_test_event"]:
+        Clickhouse.command("DROP TABLE IF EXISTS %s" % tbl)
+
+
+def assert_many_equals(test_cases):
+    caller = getframeinfo(stack()[1][0])
+    for name, expected, actual in test_cases:
+        assert expected == actual, "expected %s %r, got %r (%s:%d)" % (name, expected, actual, caller.filename, caller.lineno)

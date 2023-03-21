@@ -12,6 +12,8 @@ pub struct Page {
     pub common: CommonFields,
 
     #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
     pub name: Option<String>,
     pub properties: HashMap<String, serde_json::Value>,
 }

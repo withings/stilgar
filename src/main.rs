@@ -81,7 +81,7 @@ async fn main() {
         .and(with_beanstalk(bstk_web.proxy()))
         .and(with_schedule(configuration.forwarder.schedule))
         .and(warp::body::json())
-        .and_then(routes::any_event);
+        .and_then(routes::event_or_batch);
 
     /* Source config route to mock the Rudderstack control plane */
     let source_config_route = warp::get()

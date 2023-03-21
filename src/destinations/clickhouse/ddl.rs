@@ -10,7 +10,6 @@ use chrono::DateTime;
 lazy_static! {
     pub static ref EVENT_BASICS: String = indoc! {"
     `id` String,
-    `user_id` Nullable(String),
     `anonymous_id` Nullable(String),
     `sent_at` Nullable(DateTime),
     `original_timestamp` Nullable(DateTime),
@@ -58,12 +57,28 @@ lazy_static! {
     "}.to_string();
 
 
+    pub static ref ALIASES: String = formatdoc! {"
+    CREATE TABLE aliases
+    (
+        {event_basics}
+        {context}
+
+        `user_id` String,
+        `previous_id` String,
+    )
+    ENGINE = ReplacingMergeTree
+    PARTITION BY toDate(received_at)
+    ORDER BY (received_at, id);
+    ", event_basics = EVENT_BASICS.to_string(), context = CONTEXT.to_string()};
+
+
     pub static ref PAGES: String = formatdoc! {"
     CREATE TABLE pages
     (
         {event_basics}
         {context}
 
+        `user_id` Nullable(String),
         `name` Nullable(String),
         `path` Nullable(String),
         `url` Nullable(String),
@@ -84,6 +99,7 @@ lazy_static! {
         {event_basics}
         {context}
 
+        `user_id` Nullable(String),
         `name` Nullable(String),
     )
     ENGINE = ReplacingMergeTree
@@ -97,6 +113,8 @@ lazy_static! {
     (
         {event_basics}
         {context}
+
+        `user_id` String,
     )
     ENGINE = ReplacingMergeTree
     PARTITION BY toDate(received_at)
@@ -109,12 +127,11 @@ lazy_static! {
     (
         `id` String,
         `received_at` DateTime,
-        {context}
     )
     ENGINE = AggregatingMergeTree
     PARTITION BY toDate(received_at)
     ORDER BY id;
-    ", context = CONTEXT.to_string()};
+    "};
 
 
     pub static ref TRACKS: String = formatdoc! {"
@@ -123,6 +140,7 @@ lazy_static! {
         {event_basics}
         {context}
 
+        `user_id` Nullable(String),
         `event` LowCardinality(String),
     )
     ENGINE = ReplacingMergeTree
@@ -137,6 +155,7 @@ lazy_static! {
         {event_basics}
         {context}
 
+        `user_id` Nullable(String),
         `group_id` LowCardinality(String),
     )
     ENGINE = ReplacingMergeTree
@@ -149,6 +168,7 @@ impl Clickhouse {
     /// Creates the basic tables used by Stilgar
     pub async fn create_tables(&self) -> StorageResult {
         let initial_ddl = [
+            ("aliases", ALIASES.to_string()),
             ("pages", PAGES.to_string()),
             ("screens", SCREENS.to_string()),
             ("identifies", IDENTIFIES.to_string()),
@@ -172,12 +192,18 @@ impl Clickhouse {
         /* Figure out which columns are missing */
         let current_columns = self.describe_table(&table_name).await.expect("failed to describe table");
         let missing_columns = expected_columns.iter().filter(|(k, _v)| !current_columns.keys().contains(k)).collect_vec();
+        let use_aggregate_function = self.table_is_aggregating(&table_name).await?;
 
         log::debug!("{} missing column(s) in table {}: will try to extend", missing_columns.len(), table_name);
 
         /* Create them */
         for (column_name, column_type) in missing_columns {
-            let sql = format!("ALTER TABLE {} ADD COLUMN {} {}", table_name, column_name, column_type);
+            let aggregating_column_type = format!("SimpleAggregateFunction(anyLast, {})", column_type);
+            let final_column_type = match use_aggregate_function {
+                true => &aggregating_column_type,
+                false => column_type
+            };
+            let sql = format!("ALTER TABLE {} ADD COLUMN {} {}", table_name, column_name, final_column_type);
             log::debug!("creating missing column: {}.{} {}", table_name, column_name, column_type);
             self.nio(sql).await?;
         }
