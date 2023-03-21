@@ -4,6 +4,7 @@ mod events;
 mod routes;
 mod beanstalk;
 mod forwarder;
+mod middleware;
 
 use crate::beanstalk::{Beanstalk, BeanstalkProxy};
 use crate::forwarder::events_forwarder;
@@ -15,8 +16,7 @@ use cron;
 use log;
 use warp;
 use warp::Filter;
-use warp::http::Method;
-use std::convert::Infallible;
+use std::sync::Arc;
 use std::net::SocketAddr;
 use std::collections::HashMap;
 
@@ -78,6 +78,8 @@ async fn main() {
             .or(warp::path!("v1" / "page")).unify()
             .or(warp::path!("v1" / "screen")).unify()
             .or(warp::path!("v1" / "track")).unify())
+        .and(middleware::content_length_filter(configuration.server.payload_size_limit))
+        .and(middleware::auth_filter(configuration.server.write_key.clone()))
         .and(with_beanstalk(bstk_web.proxy()))
         .and(with_schedule(configuration.forwarder.schedule))
         .and(warp::body::json())
@@ -86,7 +88,7 @@ async fn main() {
     /* Source config route to mock the Rudderstack control plane */
     let source_config_route = warp::get()
         .and(warp::path!("sourceConfig"))
-        .and(with_write_key(configuration.server.write_key))
+        .and(with_write_key(configuration.server.write_key.clone()))
         .and(warp::query::<HashMap<String, String>>())
         .and_then(routes::source_config);
 
@@ -96,8 +98,8 @@ async fn main() {
     let forwarder = events_forwarder(bstk_forwarder.proxy(), &destinations);
     let webservice = warp::serve(
         any_event_route.or(source_config_route)
-            .with(cors(&configuration.server.origins))
-            .recover(handle_rejection)
+            .with(middleware::cors(&configuration.server.origins))
+            .recover(middleware::handle_rejection)
     ).run(SocketAddr::new(configuration.server.ip, configuration.server.port));
 
     /* Start everything */
@@ -135,25 +137,6 @@ fn with_beanstalk(proxy: BeanstalkProxy) -> impl Filter<Extract = (BeanstalkProx
     warp::any().map(move || proxy.clone())
 }
 
-fn with_write_key(write_key: Option<String>) -> impl Filter<Extract = (Option<String>,), Error = std::convert::Infallible> + Clone {
+fn with_write_key(write_key: Arc<Option<String>>) -> impl Filter<Extract = (Arc<Option<String>>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || write_key.clone())
-}
-
-#[derive(Debug)]
-struct Unauthorized;
-#[derive(Debug)]
-struct Forbidden;
-impl warp::reject::Reject for Unauthorized {}
-impl warp::reject::Reject for Forbidden {}
-
-fn cors(origins: &Vec<String>) -> warp::cors::Builder {
-    warp::cors()
-        .allow_methods(&[Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers(["authorization", "anonymousid", "content-type"])
-        .allow_credentials(true)
-        .allow_origins(origins.iter().map(|s| s.as_str()))
-}
-
-async fn handle_rejection(_err: warp::Rejection) -> Result<impl warp::Reply, Infallible> {
-    Ok(warp::reply::with_status("KO", warp::http::StatusCode::NOT_FOUND))
 }

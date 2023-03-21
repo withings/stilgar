@@ -1,10 +1,12 @@
 use serde::{Serialize, Deserialize};
 use std::net::IpAddr;
 use std::fs::File;
+use std::sync::Arc;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use directories::ProjectDirs;
 use serde_with::{DisplayFromStr, serde_as};
+use byte_unit::Byte as ByteSize;
 use serde_yaml;
 use cron;
 use log;
@@ -12,11 +14,13 @@ use log;
 /// Configuration defaults
 pub mod defaults {
     use std::net::{IpAddr, Ipv4Addr};
+    use byte_unit::{Byte as ByteSize, ByteUnit};
     use std::str::FromStr;
     use cron;
 
     pub fn server_ip() -> IpAddr { IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) }
     pub fn server_port() -> u16 { 8080 }
+    pub fn server_payload_size_limit() -> ByteSize { ByteSize::from_unit(4.0, ByteUnit::MiB).unwrap() }
 
     pub fn forwarder_beanstalk() -> String { String::from("127.0.0.1:11300") }
     pub fn forwarder_schedule() -> cron::Schedule { cron::Schedule::from_str("0 * * * * * *").unwrap() }
@@ -34,7 +38,9 @@ pub struct Server {
     pub port: u16,
     /// The write key (can be left empty)
     #[serde(default)]
-    pub write_key: Option<String>,
+    pub write_key: Arc<Option<String>>,
+    #[serde(default = "defaults::server_payload_size_limit")]
+    pub payload_size_limit: ByteSize,
     /// A list of allowed origins (CORS)
     #[serde(default)]
     pub origins: Vec<String>,
@@ -46,7 +52,8 @@ impl Default for Server {
         return Self {
             ip: defaults::server_ip(),
             port: defaults::server_port(),
-            write_key: None,
+            write_key: Arc::new(None),
+            payload_size_limit: defaults::server_payload_size_limit(),
             origins: vec!(),
         }
     }

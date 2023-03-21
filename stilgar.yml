@@ -3,6 +3,7 @@ server:
   ip: 0.0.0.0  # the IP to bind to
   port: 8080  # the port to listen on
   write_key: not-actually-secret  # the write key
+  payload_size_limit: 1MiB  # payload size limit on POST event routes
   origins:  # the list of allowed origins (CORS)
     - http://localhost:8082
 

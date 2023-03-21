@@ -12,9 +12,11 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 clap = { version = "4", features = ["derive"] }
+byte-unit = { version = "4.0", features = ["serde"] }
 async-stream = "0.3"
+base64 = "0.21"
 tonic = "0.8"
 prost = "0.11"
 indoc = "1.0"

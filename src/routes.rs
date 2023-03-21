@@ -3,6 +3,7 @@ use crate::events::any::{AnyEvent, EventOrBatch};
 use crate::forwarder::delay_from_schedule;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use chrono::Utc;
 use serde_json;
 use warp;
@@ -57,11 +58,11 @@ pub async fn event_or_batch(beanstalk: BeanstalkProxy, schedule: cron::Schedule,
 }
 
 /// Control plane mock route
-pub async fn source_config(expected_write_key: Option<String>, query_params: HashMap<String, String>) -> Result<impl warp::Reply, warp::Rejection> {
-    let enabled = expected_write_key
-        .as_ref()
+pub async fn source_config(expected_write_key: Arc<Option<String>>, query_params: HashMap<String, String>) -> Result<impl warp::Reply, warp::Rejection> {
+    let enabled = expected_write_key.as_ref().clone()
         .map(|expected| query_params.get("writeKey")
-             .map(|submitted| submitted == expected)
+             .as_ref()
+             .map(|submitted| **submitted == expected)
              .unwrap_or(false)) /* key expected but none submitted: no! */
         .unwrap_or(true); /* no key expected: ok! */
 

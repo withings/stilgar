@@ -1,4 +1,4 @@
-from tester.helpers import Stilgar, Events
+from tester.helpers import Stilgar, Events, WRITE_KEY, NOT_WRITE_KEY_B64
 from tester.context import Clickhouse, assert_many_equals
 
 # from tester.context import get_service_url
@@ -15,23 +15,58 @@ from tester.context import Clickhouse, assert_many_equals
 
 def test_source_config_no_auth_disabled():
     source_config = Stilgar.sourceConfig()
-    assert source_config.status_code == 403, "expected 404 on sourceConfig without a key"
+    assert source_config.status_code == 403, "expected 403 on sourceConfig without a key"
     response = source_config.json()
     assert not response['source']['enabled'], "expected disabled source for bad key"
 
 
 def test_source_config_bad_auth_disabled():
-    source_config = Stilgar.sourceConfig(params={"writeKey": "nope"})
+    source_config = Stilgar.sourceConfig(params={"writeKey": "not-%s" % WRITE_KEY})
     assert source_config.status_code == 403, "expected 403 for bad key"
     response = source_config.json()
     assert not response['source']['enabled'], "expected disabled source for bad key"
 
 
 def test_source_config_good_auth_enabled():
-    source_config = Stilgar.sourceConfig(params={"writeKey": "not-actually-secret"})
+    source_config = Stilgar.sourceConfig(params={"writeKey": WRITE_KEY})
     assert source_config.status_code == 200, "expected 200 for good key"
     response = source_config.json()
     assert response['source']['enabled'], "expected enabled source for good key"
+
+
+def test_authentication_page_no_key():
+    page = Events.page()
+    store_page = Stilgar.page(json=page, disable_auth=True)
+    assert store_page.status_code == 401, "unexpected status %d" % store_page.status_code
+
+    pages = Clickhouse.query("SELECT * FROM pages")
+    pages = [dict(zip(pages.column_names, row)) for row in pages.result_rows]
+    assert len(pages) == 0, "expected 0 page in DB, got %d" % len(pages)
+
+
+def test_authentication_page_bad_key():
+    page = Events.page()
+    store_page = Stilgar.page(json=page, headers={'Authorization': 'Basic %s' % NOT_WRITE_KEY_B64})
+    assert store_page.status_code == 403, "unexpected status %d" % store_page.status_code
+
+    pages = Clickhouse.query("SELECT * FROM pages")
+    pages = [dict(zip(pages.column_names, row)) for row in pages.result_rows]
+    assert len(pages) == 0, "expected 0 page in DB, got %d" % len(pages)
+
+
+#################
+# Rate limiting #
+#################
+
+def test_payload_too_large():
+    page = Events.page()
+    page['name'] = "0" * (2**21)
+    store_page = Stilgar.page(json=page)
+    assert store_page.status_code == 413, "unexpected status %d" % store_page.status_code
+
+    pages = Clickhouse.query("SELECT * FROM pages")
+    pages = [dict(zip(pages.column_names, row)) for row in pages.result_rows]
+    assert len(pages) == 0, "expected 0 page in DB, got %d" % len(pages)
 
 
 ################
@@ -42,7 +77,7 @@ def test_alias_no_previous_id():
     alias = Events.alias()
     del alias['previousId']
     store_alias = Stilgar.alias(json=alias)
-    assert store_alias.status_code == 404, "unexpected status %d" % store_alias.status_code
+    assert store_alias.status_code == 400, "unexpected status %d" % store_alias.status_code
 
 
 def test_alias_no_user():
@@ -88,7 +123,7 @@ def test_group_no_group_id():
     group = Events.group()
     del group['groupId']
     store_group = Stilgar.group(json=group)
-    assert store_group.status_code == 404, "unexpected status %d" % store_group.status_code
+    assert store_group.status_code == 400, "unexpected status %d" % store_group.status_code
 
 
 def test_group_no_user():
@@ -215,7 +250,7 @@ def test_store_track_no_event_type():
     track = Events.track()
     del track['event']
     store_track = Stilgar.track(json=track)
-    assert store_track.status_code == 404, "unexpected status %d" % store_track.status_code
+    assert store_track.status_code == 400, "unexpected status %d" % store_track.status_code
 
 
 def test_store_track_no_user():
@@ -275,7 +310,7 @@ def test_identify_no_user_id():
     identify = Events.identify('dummy')
     del identify['userId']
     store_identify = Stilgar.identify(json=identify)
-    assert store_identify.status_code == 404, "unexpected status %d" % store_identify.status_code
+    assert store_identify.status_code == 400, "unexpected status %d" % store_identify.status_code
 
 
 def test_identify_with_user():

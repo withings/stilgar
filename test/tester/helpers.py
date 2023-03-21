@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from functools import partial
+from base64 import b64encode
 import requests
 import random
 import uuid
@@ -7,8 +8,20 @@ import time
 
 from tester.context import get_service_url
 
+WRITE_KEY = "not-actually-secret"
+WRITE_KEY_B64 = b64encode(("%s:" % WRITE_KEY).encode('utf-8')).decode('ascii')
+NOT_WRITE_KEY = "this-is-not-the-write-key"
+NOT_WRITE_KEY_B64 = b64encode(("%s:" % NOT_WRITE_KEY).encode('utf-8')).decode('ascii')
+
 
 def run_and_wait(fn, *args, **kwargs):
+    headers = kwargs.get("headers", {})
+    if 'disable_auth' not in kwargs and 'Authorization' not in headers:
+        headers['Authorization'] = 'Basic %s' % WRITE_KEY_B64
+        kwargs['headers'] = headers
+    elif 'disable_auth' in kwargs:
+        del kwargs['disable_auth']
+
     ret = fn(*args, **kwargs)
     time.sleep(0.5)
     return ret
