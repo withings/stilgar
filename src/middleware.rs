@@ -1,10 +1,66 @@
+use crate::events::any::EventOrBatch;
+
 use warp;
 use warp::Filter;
 use warp::http::Method;
 use byte_unit::Byte as ByteSize;
 use base64::{Engine as _, engine::general_purpose};
 use std::convert::Infallible;
+use std::io::prelude::*;
 use std::sync::Arc;
+use bytes::Bytes;
+use serde_json;
+use flate2::read::{GzDecoder, DeflateDecoder};
+
+
+#[derive(Debug)]
+pub struct UnsupportedCompression;
+impl warp::reject::Reject for UnsupportedCompression {}
+
+#[derive(Debug)]
+pub struct DecompressionError;
+impl warp::reject::Reject for DecompressionError {}
+
+#[derive(Debug)]
+pub struct NonUTF8Payload;
+impl warp::reject::Reject for NonUTF8Payload {}
+
+#[derive(Debug)]
+pub struct InvalidJSONPayload;
+impl warp::reject::Reject for InvalidJSONPayload {}
+
+pub fn compressible_event() -> impl Filter<Extract = (EventOrBatch, ), Error = warp::Rejection> + Clone {
+    warp::header::optional("content-encoding")
+        .and(warp::body::bytes())
+        .and_then(move |encoding: Option<String>, body: Bytes| async move {
+            let bytes = body.to_vec();
+
+            let body_str = match encoding {
+                Some(algorithm) => {
+                    let mut uncompressed_body = String::new();
+                    match algorithm.as_str() {
+                        "gzip" => {
+                            let mut decoder = GzDecoder::new(&bytes[..]);
+                            decoder.read_to_string(&mut uncompressed_body)
+                                .map_err(|_| warp::reject::custom(DecompressionError))
+                                .map(|_| uncompressed_body)
+                        },
+                        "deflate" => {
+                            let mut decoder = DeflateDecoder::new(&bytes[..]);
+                            decoder.read_to_string(&mut uncompressed_body)
+                                .map_err(|_| warp::reject::custom(DecompressionError))
+                                .map(|_| uncompressed_body)
+                        },
+                        _ => Err(warp::reject::custom(UnsupportedCompression))
+                    }
+                },
+                None => String::from_utf8(bytes).map_err(|_| warp::reject::custom(NonUTF8Payload))
+            }?;
+
+            serde_json::from_str(&body_str).map_err(|_| warp::reject::custom(InvalidJSONPayload))
+        })
+}
+
 
 #[derive(Debug)]
 pub struct PayloadTooLarge;
@@ -86,6 +142,8 @@ pub async fn handle_rejection(rejection: warp::Rejection) -> Result<impl warp::R
         Ok(warp::reply::with_status("KO", warp::http::StatusCode::FORBIDDEN))
     } else if let Some(PayloadTooLarge) = rejection.find() {
         Ok(warp::reply::with_status("KO", warp::http::StatusCode::PAYLOAD_TOO_LARGE))
+    } else if let Some(UnsupportedCompression) = rejection.find() {
+        Ok(warp::reply::with_status("KO", warp::http::StatusCode::UNSUPPORTED_MEDIA_TYPE))
     } else {
         Ok(warp::reply::with_status("KO", warp::http::StatusCode::BAD_REQUEST))
     }

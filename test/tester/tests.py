@@ -65,6 +65,27 @@ def test_payload_too_large():
     assert len(get_all("pages")) == 0, "expected 0 page in DB, got %d" % len(pages)
 
 
+###############
+# Compression #
+###############
+
+def test_sdk_gzip():
+    page = Events.page()
+    rudder_analytics.gzip = True
+    rudder_analytics.page(
+        context=page["context"],
+        user_id=None,
+        anonymous_id=page['anonymousId'],
+        name=page["name"],
+        category=page["category"],
+        properties=page["properties"]
+    )
+    rudder_analytics.flush()
+    rudder_analytics.gzip = False
+    wait()
+
+    pages = get_all("pages")
+    assert len(pages) == 1, "expected 1 page in DB, got %d" % len(pages)
 
 
 ################

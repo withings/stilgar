@@ -82,7 +82,7 @@ async fn main() {
         .and(middleware::auth_filter(configuration.server.write_key.clone()))
         .and(with_beanstalk(bstk_web.proxy()))
         .and(with_schedule(configuration.forwarder.schedule))
-        .and(warp::body::json())
+        .and(middleware::compressible_event())
         .and_then(routes::event_or_batch);
 
     /* Source config route to mock the Rudderstack control plane */
