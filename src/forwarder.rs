@@ -1,4 +1,4 @@
-use crate::events::any::{AnyEvent, EventOrBatch};
+use crate::events::any::{AnyEvent, EventOrBatch, set_common_attribute};
 
 use crate::beanstalk::BeanstalkProxy;
 use crate::destinations::Destinations;
@@ -50,8 +50,9 @@ pub async fn events_forwarder(beanstalk: BeanstalkProxy, destinations: &Destinat
         };
 
         /* If it's a batch event, split it and reschedule each subevent individually (now) */
-        if let EventOrBatch::Batch(batch_event) = event_or_batch {
-            for subevent in batch_event.batch.iter() {
+        if let EventOrBatch::Batch(mut batch_event) = event_or_batch {
+            for subevent in batch_event.batch.iter_mut() {
+                set_common_attribute!(subevent, sent_at, batch_event.sent_at);
                 match serde_json::to_string(&subevent) {
                     Ok(subevent_str) => if let Err(e) = beanstalk.put(subevent_str, 0).await {
                         log::warn!("failed to submit subevent from batch: {}", e);

@@ -6,6 +6,22 @@ use crate::events::screen::Screen;
 use crate::events::track::Track;
 
 use serde::{Deserialize, Serialize};
+use chrono::{DateTime, Utc};
+
+macro_rules! set_common_attribute {
+    ($event:expr, $field:ident, $value:expr) => {
+        match $event {
+            AnyEvent::Alias(alias) => alias.common.$field = $value,
+            AnyEvent::Group(group) => group.common.$field = $value,
+            AnyEvent::Identify(group) => group.common.$field = $value,
+            AnyEvent::Page(group) => group.common.$field = $value,
+            AnyEvent::Screen(group) => group.common.$field = $value,
+            AnyEvent::Track(group) => group.common.$field = $value,
+        };
+    };
+}
+
+pub(crate) use set_common_attribute;
 
 /// Convenience enum: can accept any event
 #[derive(Serialize, Deserialize)]
@@ -27,8 +43,11 @@ pub enum AnyEvent {
 
 /// A batch event, as sent to /v1/batch
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Batch {
     pub batch: Vec<AnyEvent>,
+    #[serde(default)]
+    pub sent_at: Option<DateTime<Utc>>,
 }
 
 /// Convenience enum: accepts any event or a batch of events

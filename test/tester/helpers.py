@@ -14,6 +14,10 @@ NOT_WRITE_KEY = "this-is-not-the-write-key"
 NOT_WRITE_KEY_B64 = b64encode(("%s:" % NOT_WRITE_KEY).encode('utf-8')).decode('ascii')
 
 
+def wait():
+    time.sleep(0.5)
+
+
 def run_and_wait(fn, *args, **kwargs):
     headers = kwargs.get("headers", {})
     if 'disable_auth' not in kwargs and 'Authorization' not in headers:
@@ -23,7 +27,7 @@ def run_and_wait(fn, *args, **kwargs):
         del kwargs['disable_auth']
 
     ret = fn(*args, **kwargs)
-    time.sleep(0.5)
+    wait()
     return ret
 
 
@@ -137,6 +141,7 @@ class Events:
                 "screen_awesomeness": 2,
             },
             "name": Events.random_str(),
+            "category": Events.random_str(),
         }}
 
     @staticmethod

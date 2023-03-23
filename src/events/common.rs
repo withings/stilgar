@@ -16,8 +16,10 @@ pub struct CommonFields {
     pub context: Context,
     #[serde(default)]
     pub received_at: Option<DateTime<Utc>>,
+    #[serde(alias = "timestamp")]
     pub original_timestamp: DateTime<Utc>,
-    pub sent_at: DateTime<Utc>,
+    #[serde(default)]
+    pub sent_at: Option<DateTime<Utc>>,
     pub integrations: HashMap<String, serde_json::Value>,
     pub message_id: String,
 }

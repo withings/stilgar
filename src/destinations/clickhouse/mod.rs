@@ -140,6 +140,7 @@ impl Destination for Clickhouse {
         let mut kv = Self::map_common_fields(&page.common);
         kv.insert("user_id".into(), page.user_id.as_ref().map(|i| i.clone()));
         kv.insert("name".into(), page.name.as_ref().map(|n| n.clone()));
+        kv.insert("category".into(), page.category.as_ref().map(|n| n.clone()));
         for (key, value) in &page.properties {
             kv.insert(key.into(), Self::json_to_string(value));
         }
@@ -152,6 +153,7 @@ impl Destination for Clickhouse {
         let mut kv = Self::map_common_fields(&screen.common);
         kv.insert("user_id".into(), screen.user_id.as_ref().map(|i| i.clone()));
         kv.insert("name".into(), screen.name.as_ref().map(|n| n.clone()));
+        kv.insert("category".into(), screen.category.as_ref().map(|n| n.clone()));
         for (key, value) in &screen.properties {
             kv.insert(key.into(), Self::json_to_string(value));
         }

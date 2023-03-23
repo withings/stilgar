@@ -15,5 +15,7 @@ pub struct Screen {
     pub user_id: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
     pub properties: HashMap<String, serde_json::Value>,
 }

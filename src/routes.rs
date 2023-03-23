@@ -1,5 +1,5 @@
 use crate::beanstalk::BeanstalkProxy;
-use crate::events::any::{AnyEvent, EventOrBatch};
+use crate::events::any::{AnyEvent, EventOrBatch, set_common_attribute};
 use crate::forwarder::delay_from_schedule;
 
 use std::collections::HashMap;
@@ -13,14 +13,7 @@ use cron;
 /// Rewrites a single event's received_at
 fn overwrite_event_received_at(event: &mut AnyEvent) {
     let now = Utc::now();
-    match event {
-        AnyEvent::Alias(alias) => alias.common.received_at = Some(now),
-        AnyEvent::Group(group) => group.common.received_at = Some(now),
-        AnyEvent::Identify(group) => group.common.received_at = Some(now),
-        AnyEvent::Page(group) => group.common.received_at = Some(now),
-        AnyEvent::Screen(group) => group.common.received_at = Some(now),
-        AnyEvent::Track(group) => group.common.received_at = Some(now),
-    }
+    set_common_attribute!(event, received_at, Some(now));
 }
 
 /// Rewrites an event's received_at, going into batches if necessary

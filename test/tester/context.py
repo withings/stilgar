@@ -46,6 +46,15 @@ Clickhouse = clickhouse_connect.get_client(
 )
 
 
+def query(sql, **kwargs):
+    entries = Clickhouse.query(sql, **kwargs)
+    return [dict(zip(entries.column_names, row)) for row in entries.result_rows]
+
+
+def get_all(table):
+    return query("SELECT * FROM %s" % table)
+
+
 def reset():
     for tbl in ["aliases", "pages", "screens", "identifies", "tracks", "groups"]:
         Clickhouse.command("TRUNCATE TABLE IF EXISTS %s" % tbl)

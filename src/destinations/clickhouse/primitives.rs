@@ -265,7 +265,7 @@ impl Clickhouse {
             ("channel".into(), Some(common.channel.clone())),
             ("received_at".into(), Some(common.received_at.expect("missing received_at field in event after processing").timestamp().to_string())),
             ("original_timestamp".into(), Some(common.original_timestamp.timestamp().to_string())),
-            ("sent_at".into(), Some(common.sent_at.timestamp().to_string())),
+            ("sent_at".into(), common.sent_at.map(|d| d.timestamp().to_string())),
             ("id".into(), Some(common.message_id.clone())),
 
             ("context_app_name".into(), common.context.app.as_ref().map(|a| a.name.clone())),
@@ -286,10 +286,10 @@ impl Clickhouse {
             ("context_device_model".into(), common.context.device.as_ref().map(|d| d.model.clone())),
             ("context_device_name".into(), common.context.device.as_ref().map(|d| d.name.clone())),
 
-            ("context_library_name".into(), Some(common.context.library.name.clone())),
-            ("context_library_version".into(), Some(common.context.library.name.clone())),
+            ("context_library_name".into(), common.context.library.as_ref().map(|l| l.name.clone())),
+            ("context_library_version".into(), common.context.library.as_ref().map(|l| l.version.clone())),
 
-            ("context_locale".into(), Some(common.context.locale.clone())),
+            ("context_locale".into(), common.context.locale.as_ref().map(|l| l.clone())),
 
             ("context_network_bluetooth".into(), common.context.network.as_ref().map(|n| n.bluetooth.clone())),
             ("context_network_carrier".into(), common.context.network.as_ref().map(|n| n.carrier.clone())),
@@ -299,11 +299,11 @@ impl Clickhouse {
             ("context_os_name".into(), common.context.os.as_ref().map(|o| o.name.clone())),
             ("context_os_version".into(), common.context.os.as_ref().map(|o| o.version.clone())),
 
-            ("context_screen_density".into(), Some(common.context.screen.density.to_string())),
-            ("context_screen_width".into(), Some(common.context.screen.width.to_string())),
-            ("context_screen_height".into(), Some(common.context.screen.height.to_string())),
-            ("context_screen_inner_width".into(), common.context.screen.inner_width.as_ref().map(|w| w.to_string())),
-            ("context_screen_inner_height".into(), common.context.screen.inner_height.as_ref().map(|w| w.to_string())),
+            ("context_screen_density".into(), common.context.screen.as_ref().map(|s| s.density.to_string())),
+            ("context_screen_width".into(), common.context.screen.as_ref().map(|s| s.width.to_string())),
+            ("context_screen_height".into(), common.context.screen.as_ref().map(|s| s.height.to_string())),
+            ("context_screen_inner_width".into(), common.context.screen.as_ref().map(|s| s.inner_width.map(|w| w.to_string())).flatten()),
+            ("context_screen_inner_height".into(), common.context.screen.as_ref().map(|s| s.inner_height.map(|h| h.to_string())).flatten()),
 
             ("context_timezone".into(), common.context.timezone.as_ref().map(|t| t.clone())),
             ("context_user_agent".into(), common.context.user_agent.as_ref().map(|u| u.clone())),

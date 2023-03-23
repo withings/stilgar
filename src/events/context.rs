@@ -11,13 +11,16 @@ pub struct Context {
     pub campaign: Option<Campaign>,
     #[serde(default)]
     pub device: Option<Device>,
-    pub library: Library,
-    pub locale: String,
+    #[serde(default)]
+    pub library: Option<Library>,
+    #[serde(default)]
+    pub locale: Option<String>,
     #[serde(default)]
     pub network: Option<Network>,
     #[serde(default)]
     pub os: Option<OS>,
-    pub screen: Screen,
+    #[serde(default)]
+    pub screen: Option<Screen>,
     #[serde(default)]
     pub timezone: Option<String>,
     #[serde(default)]
