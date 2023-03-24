@@ -1,0 +1,22 @@
+server:
+  ip: 0.0.0.0
+  port: 8080
+  write_key: not-actually-secret
+  payload_size_limit: 1MiB
+  origins:
+    - http://localhost:8082
+
+forwarder:
+  beanstalk: beanstalkd:11300
+  schedule: "* * * * * * *"
+
+destinations:
+  - type: blackhole
+  - type: clickhouse
+    host: clickhouse
+    user: myuser
+    password: mypassword
+    database: mydatabase
+    cache_threshold: 1
+    max_table_expansion: 40
+    max_table_width: 100

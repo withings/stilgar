@@ -1,4 +1,4 @@
-use crate::destinations::StorageResult;
+use crate::destinations::{StorageResult, StorageError};
 use crate::destinations::clickhouse::Clickhouse;
 
 use std::collections::HashMap;
@@ -192,9 +192,24 @@ impl Clickhouse {
         /* Figure out which columns are missing */
         let current_columns = self.describe_table(&table_name).await.expect("failed to describe table");
         let missing_columns = expected_columns.iter().filter(|(k, _v)| !current_columns.keys().contains(k)).collect_vec();
-        let use_aggregate_function = self.table_is_aggregating(&table_name).await?;
+
+        /* Lil' bit of growth control */
+        if self.max_table_expansion != 0 && missing_columns.len() > self.max_table_expansion {
+            return Err(StorageError::GrowthControl(format!(
+                "table expansion requires adding {} column(s), but max_table_expansion is {}",
+                missing_columns.len(), self.max_table_expansion
+            )))
+        }
+
+        if self.max_table_width != 0 && (current_columns.len() + missing_columns.len()) > self.max_table_width {
+            return Err(StorageError::GrowthControl(format!(
+                "table expansion requires adding {} column(s), but the table's width would then exceed max_table_width ({})",
+                missing_columns.len(), self.max_table_width
+            )))
+        }
 
         log::debug!("{} missing column(s) in table {}: will try to extend", missing_columns.len(), table_name);
+        let use_aggregate_function = self.table_is_aggregating(&table_name).await?;
 
         /* Create them */
         for (column_name, column_type) in missing_columns {

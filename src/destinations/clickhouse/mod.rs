@@ -26,6 +26,8 @@ pub struct Clickhouse {
     username: String,
     password: String,
     cache_threshold: usize,
+    max_table_expansion: usize,
+    max_table_width: usize,
 }
 
 /// Implementing the Destination trait for Clickhouse
@@ -54,6 +56,16 @@ impl Destination for Clickhouse {
             .map(|v| v.as_u64().map(|u| u as usize))
             .unwrap_or(Some(cache::DEFAULT_CACHE_THRESHOLD))
             .ok_or(StorageError::Initialisation("cache_threshold parameter should be a positive number".to_string()))?;
+        let max_table_expansion = settings
+            .get("max_table_expansion")
+            .map(|v| v.as_u64().map(|u| u as usize))
+            .unwrap_or(Some(cache::DEFAULT_MAX_TABLE_EXPANSION))
+            .ok_or(StorageError::Initialisation("max_table_expansion parameter should be a positive number".to_string()))?;
+        let max_table_width = settings
+            .get("max_table_width")
+            .map(|v| v.as_u64().map(|u| u as usize))
+            .unwrap_or(Some(cache::DEFAULT_MAX_TABLE_WIDTH))
+            .ok_or(StorageError::Initialisation("max_table_width parameter should be a positive number".to_string()))?;
 
         let client = grpc::Client::connect(format!("http://{}:{}", host, port)).await
             .map_err(|e| StorageError::Connectivity(e.to_string()))?;
@@ -68,7 +80,9 @@ impl Destination for Clickhouse {
             username: username.to_string(),
             password: password.to_string(),
             database: database.to_string(),
-            cache_threshold
+            cache_threshold,
+            max_table_expansion,
+            max_table_width,
         };
         let clickhouse_arc = Arc::new(clickhouse);
 

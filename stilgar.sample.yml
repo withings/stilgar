@@ -1,0 +1,26 @@
+# configures the API
+server:
+  ip: 0.0.0.0  # the IP to bind to
+  port: 8080  # the port to listen on
+  write_key: not-actually-secret  # the write key
+  payload_size_limit: 4MiB  # payload size limit on POST event routes
+  origins:  # the list of allowed origins (CORS)
+    - https://www.example.com
+
+# configures the worker which forwards events to destinations
+forwarder:
+  beanstalk: beanstalkd-host:11300  # where to find beanstalkd
+  schedule: "* * * * * * *"  # the CRON at which forwarding happens
+                             # (supports seconds, see `cron` crate)
+
+# configures the destinations
+destinations:
+  - type: blackhole  # logs and drops all events
+  - type: clickhouse  # send to clickhouse
+    host: clickhouse-hostname  # hostname to Clickhouse
+    user: myuser  # user with access to the DB
+    password: mypassword  # password
+    database: mydatabase  # said DB
+    cache_threshold: 1000  # number of cache entries to accumulate before flushing to clickhouse
+    max_table_expansion: 10  # maximum number of columns which can be added at a time
+    max_table_width: 100  # maximum number of columns in a table (no expansion beyond that)

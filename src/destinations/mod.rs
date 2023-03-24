@@ -26,12 +26,18 @@ pub enum StorageError {
     /// Error in ::new(), getting the destination ready
     #[error("failed to initialise destination: {0}")]
     Initialisation(String),
+
     /// Network connectivity issue
     #[error("connection issue: {0}")]
     Connectivity(String),
+
     /// Interaction/query failure, pass a code, query and error message
     #[error("query failed: {2} ({0}: {1})")]
     QueryFailure(i64, String, String),
+
+    /// Growth control errors
+    #[error("growth control error: {0}")]
+    GrowthControl(String),
 }
 
 /// Convenience type: storage result (reply given to the forwarder when storing)

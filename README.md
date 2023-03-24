@@ -44,8 +44,8 @@ the control and data plane URLs, and point both to Stilgar. Here's an
 example for the JS SDK:
 
     /* initialise the SDK as usual */
-    rudderanalytics.load('your-write-key', 'https://stilgar.example.td/', {
-        configUrl: 'https://stilgar.example.td/'
+    rudderanalytics.load('your-write-key', 'https://stilgar.example.tld/', {
+        configUrl: 'https://stilgar.example.tld/'
     });
     /* send your events: page, track, screen, ... */
 

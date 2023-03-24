@@ -68,7 +68,8 @@ impl warp::reject::Reject for PayloadTooLarge {}
 
 pub fn content_length_filter(size_limit: ByteSize) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
     warp::header("content-length").and_then(move |length: u128| async move {
-        match length > size_limit.get_bytes() {
+        let bytes_max = size_limit.get_bytes();
+        match bytes_max != 0 && length > bytes_max {
             true => Err(warp::reject::custom(PayloadTooLarge)),
             false => Ok(())
         }

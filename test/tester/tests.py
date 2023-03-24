@@ -65,6 +65,38 @@ def test_payload_too_large():
     assert len(get_all("pages")) == 0, "expected 0 page in DB, got %d" % len(pages)
 
 
+def test_clickhouse_max_table_expansion():
+    track = Events.track()
+    track["event"] = "max_table_expansion_test"
+    track["properties"] = {Events.random_str(): Events.random_str() for _ in range(41)}
+    store_track = Stilgar.track(json=track)
+    assert store_track.status_code == 200, "unexpected status %d" % store_track.status_code
+
+    events = get_all("max_table_expansion_test")
+    assert len(events) == 0, "expected no track in DB, got %d" % len(tracks)
+
+
+def test_clickhouse_max_table_width():
+    for _ in range(2):
+        track = Events.track()
+        track["event"] = "max_table_width_test"
+        track["properties"] = {Events.random_str(): Events.random_str() for _ in range(20)}
+        store_track = Stilgar.track(json=track)
+        assert store_track.status_code == 200, "unexpected status %d" % store_track.status_code
+
+    events = get_all("max_table_width_test")
+    assert len(events) == 2, "expected 2 events in DB before test, got %d" % len(events)
+
+    track = Events.track()
+    track["event"] = "max_table_width_test"
+    track["properties"] = {Events.random_str(): Events.random_str() for _ in range(25)}
+    store_track = Stilgar.track(json=track)
+    assert store_track.status_code == 200, "unexpected status %d" % store_track.status_code
+
+    events = get_all("max_table_width_test")
+    assert len(events) == 2, "expected 2 events in DB after test, got %d" % len(events)
+
+
 ###############
 # Compression #
 ###############

@@ -45,7 +45,7 @@ class Stilgar:
 class Events:
     @staticmethod
     def random_str():
-        return str(uuid.uuid4())
+        return str(uuid.uuid4()).replace('-', '')
 
     @staticmethod
     def random_event_type():

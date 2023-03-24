@@ -11,6 +11,10 @@ use log;
 
 /// Default number of events which need to accumulate in cache before write queries happen
 pub const DEFAULT_CACHE_THRESHOLD: usize = 10000;
+/// Maximum number of columns which can be added at a time (0 to disable)
+pub const DEFAULT_MAX_TABLE_EXPANSION: usize = 0;
+/// Maximum number of columns in a table (no expansion beyond that, 0 to disable)
+pub const DEFAULT_MAX_TABLE_WIDTH: usize = 0;
 
 /// Interesting Clickhouse error codes
 const ERR_NO_SUCH_TABLE: i64 = 60;
