@@ -21,7 +21,7 @@ use std::net::SocketAddr;
 use std::collections::HashMap;
 
 /// Stilgar's entry point: welcome!
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() {
     env_logger::init();
 

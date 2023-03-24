@@ -10,8 +10,8 @@ server:
 # configures the worker which forwards events to destinations
 forwarder:
   beanstalk: beanstalkd-host:11300  # where to find beanstalkd
-  schedule: "* * * * * * *"  # the CRON at which forwarding happens
-                             # (supports seconds, see `cron` crate)
+  schedule: "* 30 * * * * *"  # the CRON at which forwarding happens
+                              # (supports seconds, see `cron` crate)
 
 # configures the destinations
 destinations:

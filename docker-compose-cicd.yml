@@ -12,7 +12,9 @@ services:
       service: clickhouse
 
   stilgar:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.cicd
     volumes:
       - ./target/x86_64-unknown-linux-musl/release/stilgar:/bin/stilgar
       - ./stilgar.dev.yml:/etc/stilgar.yml

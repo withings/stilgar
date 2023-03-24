@@ -38,12 +38,17 @@ def wait_for_all():
         time.sleep(1)
 
 
-Clickhouse = clickhouse_connect.get_client(
-    host='clickhouse',
-    username='myuser',
-    password='mypassword',
-    database='mydatabase'
-)
+Clickhouse = None
+
+
+def init_clickhouse():
+    global Clickhouse
+    Clickhouse = clickhouse_connect.get_client(
+        host='clickhouse',
+        username='myuser',
+        password='mypassword',
+        database='mydatabase'
+    )
 
 
 def query(sql, **kwargs):

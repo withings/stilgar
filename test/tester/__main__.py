@@ -1,13 +1,14 @@
 from termcolor import colored, cprint
 import sys
 
-from tester.context import reset, wait_for_all
+from tester.context import reset, wait_for_all, init_clickhouse
 from tester import tests
 
 
 def main():
     cprint("Waiting for all services to be ready", "white", attrs=["bold"])
     wait_for_all()
+    init_clickhouse()
 
     cprint("Running functional tests", "white", attrs=["bold"])
 

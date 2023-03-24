@@ -2,7 +2,9 @@ version: '3'
 services:
 
   stilgar:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
     tty: true
     volumes:
       - .:/home/stilgar
@@ -22,11 +24,12 @@ services:
       - 11300:11300
 
   clickhouse:
-    image: bitnami/clickhouse
+    build: test/clickhouse
     tty: true
     environment:
       - CLICKHOUSE_ADMIN_USER=myuser
       - CLICKHOUSE_ADMIN_PASSWORD=mypassword
+      - CLICKHOUSE_DB=mydatabase
     volumes:
       - clickhouse_data:/bitnami/clickhouse
       - ./test/clickhouse/conf.d:/etc/clickhouse-server/conf.d

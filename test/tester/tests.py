@@ -73,7 +73,7 @@ def test_clickhouse_max_table_expansion():
     assert store_track.status_code == 200, "unexpected status %d" % store_track.status_code
 
     events = get_all("max_table_expansion_test")
-    assert len(events) == 0, "expected no track in DB, got %d" % len(tracks)
+    assert len(events) == 0, "expected no track in DB, got %d" % len(events)
 
 
 def test_clickhouse_max_table_width():

@@ -63,7 +63,7 @@ lazy_static! {
         {event_basics}
         {context}
 
-        `user_id` String,
+        `user_id` Nullable(String),
         `previous_id` String,
     )
     ENGINE = ReplacingMergeTree
