@@ -14,6 +14,16 @@ rudder_analytics.sync = True
 rudder_analytics.debug = True
 
 
+##########
+# Status #
+##########
+
+def test_ping():
+    ping = Stilgar.ping()
+    assert ping.status_code == 200, "expected 200 on ping (root) route"
+    assert ping.text == ":-)", "expected Stilgar to be happy"
+
+
 ##################
 # Authentication #
 ##################

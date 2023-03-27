@@ -72,3 +72,8 @@ pub async fn source_config(expected_write_key: Arc<Option<String>>, query_params
         )
     )
 }
+
+/// Ping route
+pub async fn ping() -> Result<impl warp::Reply, warp::Rejection> {
+    Ok(warp::reply::with_status(":-)", http::status::StatusCode::OK))
+}

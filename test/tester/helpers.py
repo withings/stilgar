@@ -32,6 +32,7 @@ def run_and_wait(fn, *args, **kwargs):
 
 
 class Stilgar:
+    ping = partial(run_and_wait, requests.get, get_service_url("stilgar"))
     sourceConfig = partial(run_and_wait, requests.get, get_service_url("stilgar", "sourceConfig"))
     page = partial(run_and_wait, requests.post, get_service_url("stilgar", "v1", "page"))
     group = partial(run_and_wait, requests.post, get_service_url("stilgar", "v1", "group"))

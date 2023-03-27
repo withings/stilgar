@@ -92,12 +92,17 @@ async fn main() {
         .and(warp::query::<HashMap<String, String>>())
         .and_then(routes::source_config);
 
+    /* Ping (root) route for monitoring */
+    let ping_route = warp::get()
+        .and(warp::path::end())
+        .and_then(routes::ping);
+
     /* Prepare the API and forwarder tasks */
     let use_proxy = bstk_web.proxy();
     let watch_proxy = bstk_forwarder.proxy();
     let forwarder = events_forwarder(bstk_forwarder.proxy(), &destinations);
     let webservice = warp::serve(
-        any_event_route.or(source_config_route)
+        any_event_route.or(source_config_route).or(ping_route)
             .with(middleware::cors(&configuration.server.origins))
             .recover(middleware::handle_rejection)
     ).run(SocketAddr::new(configuration.server.ip, configuration.server.port));
