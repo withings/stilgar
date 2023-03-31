@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncReadExt;
 use tokio::io::BufReader;
@@ -6,6 +7,7 @@ use tokio::io::AsyncWriteExt;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use serde_yaml;
 use log;
 
 /// Queue size limit for messages to a Beanstalk channel
@@ -113,6 +115,23 @@ pub struct Job {
     pub payload: String
 }
 
+/// beanstalkd statistics
+#[derive(Serialize, Deserialize)]
+pub struct Statistics {
+    #[serde(rename = "current-jobs-ready")]
+    pub jobs_ready: usize,
+    #[serde(rename = "current-jobs-reserved")]
+    pub jobs_reserved: usize,
+    #[serde(rename = "current-jobs-delayed")]
+    pub jobs_delayed: usize,
+    #[serde(rename = "total-jobs")]
+    pub total_jobs: usize,
+    #[serde(rename = "current-connections")]
+    pub current_connections: usize,
+    pub uptime: u64,
+}
+
+
 impl BeanstalkProxy {
     /// Low level channel exchange: send a message body over the channel and wait for a reply
     async fn exchange(&self, body: ClientMessageBody) -> BeanstalkResult {
@@ -165,7 +184,7 @@ impl BeanstalkProxy {
     /// Reserve a job from the queue
     pub async fn reserve(&self) -> Result<Job, BeanstalkError> {
         log::debug!("reserving beanstalkd job");
-        let command_response = self.send_command(format!("reserve\r\n")).await?;
+        let command_response = self.send_command(String::from("reserve\r\n")).await?;
         let parts: Vec<&str> = command_response.trim().split(" ").collect();
 
         if parts.len() != 3 || parts[0] != "RESERVED" {
@@ -192,5 +211,22 @@ impl BeanstalkProxy {
             true => Ok(deleted),
             false => Err(BeanstalkError::UnexpectedResponse("delete".to_string(), deleted))
         }
+    }
+
+    /// Get server stats
+    pub async fn stats(&self) -> Result<Statistics, BeanstalkError> {
+        let command_response = self.send_command(String::from("stats\r\n")).await?;
+        let parts: Vec<&str> = command_response.trim().split(" ").collect();
+
+        if parts.len() != 2 || parts[0] != "OK" {
+            return Err(BeanstalkError::UnexpectedResponse("stats-tube".to_string(), command_response));
+        }
+
+        let bytes = parts[1].parse::<usize>()
+            .map_err(|_| BeanstalkError::UnexpectedResponse("stats-tube".to_string(), command_response.clone()))?;
+
+        let stats_yaml = self.expect_data(bytes).await?;
+        serde_yaml::from_str(&stats_yaml)
+            .map_err(|e| BeanstalkError::UnexpectedResponse("stats-tube".to_string(), e.to_string()))
     }
 }

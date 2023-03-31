@@ -6,6 +6,12 @@ server:
   payload_size_limit: 4MiB  # payload size limit on POST event routes
   origins:  # the list of allowed origins (CORS)
     - https://www.example.com
+  admin_username: admin  # username to access /status, remove to disable admin auth
+  admin_password: p4ssw0rd  # password to access /status, defaults to empty password
+
+# logging configuration
+logging:
+  level: info  # log level, one of: off, error, warn, info, debug, trace
 
 # configures the worker which forwards events to destinations
 forwarder:

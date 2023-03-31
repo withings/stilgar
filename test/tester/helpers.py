@@ -12,6 +12,8 @@ WRITE_KEY = "not-actually-secret"
 WRITE_KEY_B64 = b64encode(("%s:" % WRITE_KEY).encode('utf-8')).decode('ascii')
 NOT_WRITE_KEY = "this-is-not-the-write-key"
 NOT_WRITE_KEY_B64 = b64encode(("%s:" % NOT_WRITE_KEY).encode('utf-8')).decode('ascii')
+ADMIN_AUTHORIZATION = b64encode("admin:p4ssw0rd".encode('utf-8')).decode('ascii')
+NOT_ADMIN_AUTHORIZATION = b64encode("admin:wr0ngp4ssw0rd".encode('utf-8')).decode('ascii')
 
 
 def wait():
@@ -33,6 +35,7 @@ def run_and_wait(fn, *args, **kwargs):
 
 class Stilgar:
     ping = partial(run_and_wait, requests.get, get_service_url("stilgar"))
+    status = partial(run_and_wait, requests.get, get_service_url("stilgar", "status"))
     sourceConfig = partial(run_and_wait, requests.get, get_service_url("stilgar", "sourceConfig"))
     page = partial(run_and_wait, requests.post, get_service_url("stilgar", "v1", "page"))
     group = partial(run_and_wait, requests.post, get_service_url("stilgar", "v1", "group"))

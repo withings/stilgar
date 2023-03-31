@@ -5,6 +5,11 @@ server:
   payload_size_limit: 1MiB
   origins:
     - http://localhost:8082
+  admin_username: admin
+  admin_password: p4ssw0rd
+
+logging:
+  level: info
 
 forwarder:
   beanstalk: beanstalkd:11300

@@ -19,8 +19,6 @@ services:
       - ./target/x86_64-unknown-linux-musl/release/stilgar:/bin/stilgar
       - ./stilgar.dev.yml:/etc/stilgar.yml
     command: "bash -c 'while ! nc -z clickhouse 9100; do sleep 1; done; /bin/stilgar /etc/stilgar.yml'"
-    environment:
-      - "RUST_LOG=info,stilgar=debug"
 
   tester:
     hostname: tester

@@ -22,6 +22,8 @@ pub mod defaults {
     pub fn server_port() -> u16 { 8080 }
     pub fn server_payload_size_limit() -> ByteSize { ByteSize::from_unit(4.0, ByteUnit::MiB).unwrap() }
 
+    pub fn logging_level() -> log::LevelFilter { log::LevelFilter::Info }
+
     pub fn forwarder_beanstalk() -> String { String::from("127.0.0.1:11300") }
     pub fn forwarder_schedule() -> cron::Schedule { cron::Schedule::from_str("0 * * * * * *").unwrap() }
 }
@@ -44,6 +46,10 @@ pub struct Server {
     /// A list of allowed origins (CORS)
     #[serde(default)]
     pub origins: Vec<String>,
+    #[serde(default)]
+    pub admin_username: Arc<Option<String>>,
+    #[serde(default)]
+    pub admin_password: Arc<Option<String>>,
 }
 
 impl Default for Server {
@@ -55,6 +61,25 @@ impl Default for Server {
             write_key: Arc::new(None),
             payload_size_limit: defaults::server_payload_size_limit(),
             origins: vec!(),
+            admin_username: Arc::new(None),
+            admin_password: Arc::new(None),
+        }
+    }
+}
+
+/// Logging block
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+pub struct Logging {
+    #[serde(default = "defaults::logging_level")]
+    pub level: log::LevelFilter,
+}
+
+impl Default for Logging {
+    /// Builds a default logging block in case none is provided
+    fn default() -> Self {
+        return Self {
+            level: defaults::logging_level(),
         }
     }
 }
@@ -102,6 +127,9 @@ pub struct Configuration {
     /// A server block
     #[serde(default)]
     pub server: Server,
+    /// A logging block
+    #[serde(default)]
+    pub logging: Logging,
     /// A forwarder block
     #[serde(default)]
     pub forwarder: Forwarder,
@@ -112,25 +140,8 @@ pub struct Configuration {
 /// Parse a configuration file given a path
 fn parse_configuration_file(path: &Path) -> Result<Configuration, String> {
     let path_str = path.to_str().unwrap();
-    log::debug!("attempting to parse {} as a configuration file", path_str);
-
-    let file = match File::open(path).map_err(|e| e.to_string()) {
-        Ok(f) => f,
-        Err(e) => {
-            log::debug!("cannot open {}: {}", path_str, e);
-            return Err(e);
-        }
-    };
-
-    let configuration: Configuration = match serde_yaml::from_reader(file) {
-        Ok(c) => c,
-        Err(e) => {
-            log::debug!("cannot parse {}: {}", path_str, e);
-            return Err(e.to_string());
-        }
-    };
-
-    log::debug!("successfully parsed {} as a configuration file", path_str);
+    let file = File::open(path).map_err(|e| format!("{}: {}", path_str, e))?;
+    let configuration = serde_yaml::from_reader(file).map_err(|e| format!("{}: {}", path_str, e))?;
     Ok(configuration)
 }
 

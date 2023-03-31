@@ -1,7 +1,9 @@
 from copy import deepcopy
 
-from tester.helpers import Stilgar, Events, wait, WRITE_KEY, NOT_WRITE_KEY_B64
 from tester.context import query, get_all, assert_many_equals
+from tester.helpers import \
+    Stilgar, Events, wait, \
+    WRITE_KEY, NOT_WRITE_KEY_B64, ADMIN_AUTHORIZATION, NOT_ADMIN_AUTHORIZATION
 
 from tester.context import get_service_url
 import rudderstack.analytics as rudder_analytics
@@ -61,6 +63,23 @@ def test_authentication_page_bad_key():
     store_page = Stilgar.page(json=page, headers={'Authorization': 'Basic %s' % NOT_WRITE_KEY_B64})
     assert store_page.status_code == 403, "unexpected status %d" % store_page.status_code
     assert len(get_all("pages")) == 0, "expected 0 page in DB, got %d" % len(pages)
+
+
+def test_status_no_creds():
+    status = Stilgar.status(disable_auth=True)
+    assert status.status_code == 401, "unexpected status %d" % status.status_code
+
+
+def test_status_bad_creds():
+    status = Stilgar.status(headers={'Authorization': 'Basic %s' % NOT_ADMIN_AUTHORIZATION})
+    assert status.status_code == 403, "unexpected status %d" % status.status_code
+
+
+def test_status_good_creds():
+    status = Stilgar.status(headers={'Authorization': 'Basic %s' % ADMIN_AUTHORIZATION})
+    assert status.status_code == 200, "unexpected status %d" % status.status_code
+    status = status.json()
+    assert status["status"] == "OK", "unexpected status %s" % status["status"]
 
 
 #################
