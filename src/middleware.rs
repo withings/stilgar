@@ -186,6 +186,11 @@ pub fn basic_request_info() -> impl Filter<Extract = (BasicRequestInfo,), Error 
 
 
 pub fn request_logger(request_info: warp::log::Info) {
+    if request_info.path() == "/" {
+        /* Do not log the ping route, as this could get very verbose with active monitoring */
+        return;
+    }
+
     let headers = request_info.request_headers();
     let request_id = headers.get("x-request-id").map(|id| id.to_str().ok()).flatten().unwrap_or("?");
     let client_ip = infer_client_ip(

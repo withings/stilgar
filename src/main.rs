@@ -87,16 +87,14 @@ async fn main() {
         .and(with_schedule(configuration.forwarder.schedule.clone()))
         .and(middleware::basic_request_info())
         .and(middleware::compressible_body())
-        .and_then(routes::event_or_batch)
-        .with(warp::log::custom(middleware::request_logger));
+        .and_then(routes::event_or_batch);
 
     /* Source config route to mock the Rudderstack control plane */
     let source_config_route = warp::get()
         .and(warp::path!("sourceConfig"))
         .map(move || configuration.server.write_key.clone())
         .and(warp::query::<HashMap<String, String>>())
-        .and_then(routes::source_config)
-        .with(warp::log::custom(middleware::request_logger));
+        .and_then(routes::source_config);
 
     /* Status route */
     let status_route = warp::get()
@@ -107,8 +105,7 @@ async fn main() {
         ))
         .and(with_schedule(configuration.forwarder.schedule.clone()))
         .and(with_beanstalk(bstk_web.proxy()))
-        .and_then(routes::status)
-        .with(warp::log::custom(middleware::request_logger));
+        .and_then(routes::status);
 
     /* Ping (root) route for monitoring */
     let ping_route = warp::get()
@@ -122,6 +119,7 @@ async fn main() {
     let webservice = warp::serve(
         any_event_route.or(source_config_route).or(status_route).or(ping_route)
             .with(middleware::cors(&configuration.server.origins))
+            .with(warp::log::custom(middleware::request_logger))
             .recover(middleware::handle_rejection)
     ).run(SocketAddr::new(configuration.server.ip, configuration.server.port));
 
