@@ -16,5 +16,6 @@ pub struct Group {
     #[serde(default)]
     pub user_id: Option<String>,
     pub group_id: String,
+    #[serde(default)]
     pub traits: HashMap<String, serde_json::Value>,
 }

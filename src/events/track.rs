@@ -14,5 +14,6 @@ pub struct Track {
     #[serde(default)]
     pub user_id: Option<String>,
     pub event: String,
+    #[serde(default)]
     pub properties: HashMap<String, serde_json::Value>,
 }

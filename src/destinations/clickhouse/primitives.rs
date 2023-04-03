@@ -258,56 +258,33 @@ impl Clickhouse {
         Ok(engines[0][0].starts_with("Aggregating"))
     }
 
+    fn map_context_entries(entries: &HashMap<String, serde_json::Value>, prefix: &str) -> HashMap<String, Option<String>> {
+        entries.iter().map(|(k, v)| (format!("context_{}_{}", prefix, k), Self::json_to_string(v))).collect()
+    }
+
     /// Maps known event fields (CommonFields) to string for TSV input
     pub fn map_common_fields(common: &CommonFields) -> HashMap<String, Option<String>> {
-        HashMap::from([
+        let mut common_hashmap = HashMap::from([
             ("anonymous_id".into(), Some(common.anonymous_id.clone())),
             ("channel".into(), Some(common.channel.clone())),
             ("received_at".into(), Some(common.received_at.expect("missing received_at field in event after processing").timestamp().to_string())),
             ("original_timestamp".into(), Some(common.original_timestamp.timestamp().to_string())),
             ("sent_at".into(), common.sent_at.map(|d| d.timestamp().to_string())),
             ("id".into(), Some(common.message_id.clone())),
+            ("context_locale".into(), common.context.locale.clone()),
+            ("context_timezone".into(), common.context.timezone.clone()),
+            ("context_user_agent".into(), common.context.user_agent.clone()),
+        ]);
 
-            ("context_app_name".into(), common.context.app.as_ref().map(|a| a.name.clone())),
-            ("context_app_version".into(), common.context.app.as_ref().map(|a| a.version.clone())),
-            ("context_app_build".into(), common.context.app.as_ref().map(|a| a.build.as_ref().map(|b| b.clone())).flatten()),
+        common_hashmap.extend(Self::map_context_entries(&common.context.app, "app"));
+        common_hashmap.extend(Self::map_context_entries(&common.context.campaign, "campaign"));
+        common_hashmap.extend(Self::map_context_entries(&common.context.device, "device"));
+        common_hashmap.extend(Self::map_context_entries(&common.context.library, "library"));
+        common_hashmap.extend(Self::map_context_entries(&common.context.network, "network"));
+        common_hashmap.extend(Self::map_context_entries(&common.context.os, "os"));
+        common_hashmap.extend(Self::map_context_entries(&common.context.screen, "screen"));
 
-            ("context_campaign_name".into(), common.context.campaign.as_ref().map(|c| c.name.as_ref().map(|n| n.clone())).flatten()),
-            ("context_campaign_source".into(), common.context.campaign.as_ref().map(|c| c.source.as_ref().map(|s| s.clone())).flatten()),
-            ("context_campaign_medium".into(), common.context.campaign.as_ref().map(|c| c.medium.as_ref().map(|m| m.clone())).flatten()),
-            ("context_campaign_term".into(), common.context.campaign.as_ref().map(|c| c.term.as_ref().map(|t| t.clone())).flatten()),
-            ("context_campaign_content".into(), common.context.campaign.as_ref().map(|c| c.content.as_ref().map(|ct| ct.clone())).flatten()),
-
-            ("context_device_type".into(), common.context.device.as_ref().map(|d| d.device_type.clone())),
-            ("context_device_id".into(), common.context.device.as_ref().map(|d| d.id.clone())),
-            ("context_device_advertising_id".into(), common.context.device.as_ref().map(|d| d.advertising_id.clone())),
-            ("context_device_ad_tracking_enabled".into(), common.context.device.as_ref().map(|d| d.ad_tracking_enabled.to_string())),
-            ("context_device_manufacturer".into(), common.context.device.as_ref().map(|d| d.manufacturer.clone())),
-            ("context_device_model".into(), common.context.device.as_ref().map(|d| d.model.clone())),
-            ("context_device_name".into(), common.context.device.as_ref().map(|d| d.name.clone())),
-
-            ("context_library_name".into(), common.context.library.as_ref().map(|l| l.name.clone())),
-            ("context_library_version".into(), common.context.library.as_ref().map(|l| l.version.clone())),
-
-            ("context_locale".into(), common.context.locale.as_ref().map(|l| l.clone())),
-
-            ("context_network_bluetooth".into(), common.context.network.as_ref().map(|n| n.bluetooth.clone())),
-            ("context_network_carrier".into(), common.context.network.as_ref().map(|n| n.carrier.clone())),
-            ("context_network_cellular".into(), common.context.network.as_ref().map(|n| n.cellular.clone())),
-            ("context_network_wifi".into(), common.context.network.as_ref().map(|n| n.wifi.clone())),
-
-            ("context_os_name".into(), common.context.os.as_ref().map(|o| o.name.clone())),
-            ("context_os_version".into(), common.context.os.as_ref().map(|o| o.version.clone())),
-
-            ("context_screen_density".into(), common.context.screen.as_ref().map(|s| s.density.to_string())),
-            ("context_screen_width".into(), common.context.screen.as_ref().map(|s| s.width.to_string())),
-            ("context_screen_height".into(), common.context.screen.as_ref().map(|s| s.height.to_string())),
-            ("context_screen_inner_width".into(), common.context.screen.as_ref().map(|s| s.inner_width.map(|w| w.to_string())).flatten()),
-            ("context_screen_inner_height".into(), common.context.screen.as_ref().map(|s| s.inner_height.map(|h| h.to_string())).flatten()),
-
-            ("context_timezone".into(), common.context.timezone.as_ref().map(|t| t.clone())),
-            ("context_user_agent".into(), common.context.user_agent.as_ref().map(|u| u.clone())),
-        ]).into()
+        common_hashmap
     }
 
     /// Convert any JSON value to a string for TSV input

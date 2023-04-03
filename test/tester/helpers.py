@@ -49,7 +49,9 @@ class Stilgar:
 class Events:
     @staticmethod
     def random_str():
-        return str(uuid.uuid4()).replace('-', '')
+        # used for identifiers (table/column names), must start with a letterg
+        s = str(uuid.uuid4()).replace('-', '')
+        return random.choice("abcdef") + s[1:]
 
     @staticmethod
     def random_event_type():

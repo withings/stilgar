@@ -17,6 +17,7 @@ use std::fmt::Display;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use log;
+use regex::Regex;
 
 /// Clickhouse destination
 pub struct Clickhouse {
@@ -28,6 +29,7 @@ pub struct Clickhouse {
     cache_threshold: usize,
     max_table_expansion: usize,
     max_table_width: usize,
+    identifier_regex: Regex,
 }
 
 /// Implementing the Destination trait for Clickhouse
@@ -83,6 +85,7 @@ impl Destination for Clickhouse {
             cache_threshold,
             max_table_expansion,
             max_table_width,
+            identifier_regex: Regex::new(r"^[a-zA-Z_][0-9a-zA-Z_]*$").expect("invalid Clickhouse idenifier REGEX"),
         };
         let clickhouse_arc = Arc::new(clickhouse);
 

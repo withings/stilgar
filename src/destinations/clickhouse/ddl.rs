@@ -7,6 +7,8 @@ use lazy_static::lazy_static;
 use indoc::{indoc, formatdoc};
 use chrono::DateTime;
 
+const MAX_IDENTIFIER_LENGTH: usize = 64;
+
 lazy_static! {
     pub static ref EVENT_BASICS: String = indoc! {"
     `id` String,
@@ -187,8 +189,23 @@ impl Clickhouse {
         Ok(())
     }
 
+    /// Validates a table or column name (maximum size, REGEX)
+    fn is_valid_identifier(&self, column_name: &String) -> bool {
+        column_name.len() > 0 && column_name.len() <= MAX_IDENTIFIER_LENGTH && self.identifier_regex.is_match(column_name)
+    }
+
     /// Adds any missing columns to an existing table
     pub async fn extend_existing_table(&self, table_name: &String, expected_columns: HashMap<String, String>) -> StorageResult {
+        /* Validate the new column names */
+        for column_name in expected_columns.keys() {
+            if !self.is_valid_identifier(column_name) {
+                return Err(StorageError::GrowthControl(format!(
+                    "new column name is invalid ({}), refusing to extend table {}",
+                    column_name, table_name
+                )))
+            }
+        }
+
         /* Figure out which columns are missing */
         let current_columns = self.describe_table(&table_name).await.expect("failed to describe table");
         let missing_columns = expected_columns.iter().filter(|(k, _v)| !current_columns.keys().contains(k)).collect_vec();
@@ -226,13 +243,19 @@ impl Clickhouse {
     }
 
     /// Designs a basic table with common fields and context info.
-    pub fn get_basic_table_ddl(table_name: &String) -> String {
-        format!(
-            "CREATE TABLE {} ({} {}) ENGINE = ReplacingMergeTree PARTITION BY toDate(received_at) ORDER BY (received_at, id)",
-            table_name,
-            EVENT_BASICS.to_string(),
-            CONTEXT.to_string()
-        )
+    pub fn get_basic_table_ddl(&self, table_name: &String) -> Result<String, StorageError> {
+        match self.is_valid_identifier(table_name) {
+            true => Ok(format!(
+                "CREATE TABLE {} ({} {}) ENGINE = ReplacingMergeTree PARTITION BY toDate(received_at) ORDER BY (received_at, id)",
+                table_name,
+                EVENT_BASICS.to_string(),
+                CONTEXT.to_string()
+            )),
+            false => Err(StorageError::GrowthControl(format!(
+                "new table name is invalid ({}), cannot generate DDL",
+                table_name
+            )))
+        }
     }
 
     /// Infer a column's type using known values

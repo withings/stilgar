@@ -124,8 +124,17 @@ impl Clickhouse {
                 /* The table does not exist (track) : create it and try again */
                 if code == ERR_NO_SUCH_TABLE {
                     log::debug!("missing table: {}, will try to create", cache_entry.table);
-                    self.nio(Self::get_basic_table_ddl(&cache_entry.table)).await
-                        .expect("failed to create table dynamically");
+
+                    match self.get_basic_table_ddl(&cache_entry.table) {
+                        Ok(ddl) => {
+                            self.nio(ddl).await.expect("failed to create table dynamically");
+                        },
+                        Err(e) => {
+                            log::error!("failed to create table {}: {}", cache_entry.table, e.to_string());
+                            continue;
+                        }
+                    }
+
                     write_result = self.try_write(cache_entry).await;
                 }
             }

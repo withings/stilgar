@@ -201,14 +201,13 @@ pub fn request_logger(request_info: warp::log::Info) {
     let content_length = headers.get("content-length").map(|length| length.to_str().ok()).flatten().unwrap_or("0");
 
     log::info!(
-        "[request] [{}] {} {} {:?} from {} length {} status {}",
+        "[request] [{}] {} {} {:?} from {} length {}",
         request_id,
         request_info.method(),
         request_info.path(),
         request_info.version(),
         client_ip,
         content_length,
-        request_info.status().as_u16(),
     );
 }
 
