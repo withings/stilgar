@@ -23,5 +23,6 @@ destinations:
     password: mypassword
     database: mydatabase
     cache_threshold: 1
+    cache_idle_timeout: 60s
     max_table_expansion: 40
     max_table_width: 100

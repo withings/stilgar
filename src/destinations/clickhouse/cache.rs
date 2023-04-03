@@ -2,15 +2,19 @@ use crate::destinations::clickhouse::{Clickhouse, StorageResult, StorageError};
 use crate::destinations::clickhouse::primitives::{GenericQuery, InsertQuery};
 
 use std::fmt::Debug;
+use std::time::Duration;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use twox_hash::XxHash64;
+use tokio;
 use tokio::sync::{mpsc, oneshot};
 use itertools::Itertools;
 use log;
 
 /// Default number of events which need to accumulate in cache before write queries happen
 pub const DEFAULT_CACHE_THRESHOLD: usize = 10000;
+/// Default waiting idle time after which a flush should be triggered with the partial buffer
+pub const DEFAULT_CACHE_IDLE_THRESHOLD: Duration = Duration::from_secs(60);
 /// Maximum number of columns which can be added at a time (0 to disable)
 pub const DEFAULT_MAX_TABLE_EXPANSION: usize = 0;
 /// Maximum number of columns in a table (no expansion beyond that, 0 to disable)
@@ -86,27 +90,38 @@ impl Clickhouse {
         let mut insert_cache: InsertCacheMap = Default::default();
         let mut cache_size = 0 as usize;
 
-        while let Some(insert) = rx.recv().await {
-            /* Sort row values by column name */
-            let sorted_row = insert.row.iter().sorted_by(|kv1, kv2| kv1.0.cmp(&kv2.0)).collect_vec();
-            let columns = sorted_row.iter().map(|kv| kv.0.clone()).collect::<Vec<String>>();
-            let values = sorted_row.iter().map(|kv| kv.1.clone()).collect::<Vec<Option<String>>>();
+        loop {
+            let insert_future = rx.recv();
+            let timeout_future = tokio::time::sleep(self.cache_idle_timeout);
 
-            /* Find a cache entry for those columns, create it if necessary */
-            let cache_key = insert.table.clone() + "," + &columns.join(",");
-            let entry = insert_cache.entry(cache_key).or_insert_with(|| { InsertEntry {
-                table: insert.table.clone(),
-                columns,
-                rows: vec![]
-            }});
-            entry.rows.push(values); /* add the row to cache */
-            cache_size += 1;
+            let flush_now = tokio::select! {
+                _ = timeout_future => !insert_cache.is_empty(), /* you timeout, you got data = you flush */
+                insert = insert_future => {
+                    let insert = insert.expect("failed to retrieve an insert on the cache channel");
 
-            if cache_size < self.cache_threshold {
+                    /* Sort row values by column name */
+                    let sorted_row = insert.row.iter().sorted_by(|kv1, kv2| kv1.0.cmp(&kv2.0)).collect_vec();
+                    let columns = sorted_row.iter().map(|kv| kv.0.clone()).collect::<Vec<String>>();
+                    let values = sorted_row.iter().map(|kv| kv.1.clone()).collect::<Vec<Option<String>>>();
+
+                    /* Find a cache entry for those columns, create it if necessary */
+                    let cache_key = insert.table.clone() + "," + &columns.join(",");
+                    let entry = insert_cache.entry(cache_key).or_insert_with(|| { InsertEntry {
+                        table: insert.table.clone(),
+                        columns,
+                        rows: vec![]
+                    }});
+                    entry.rows.push(values); /* add the row to cache */
+                    cache_size += 1;
+                    cache_size >= self.cache_threshold /* you fill the cache = you flush */
+                }
+            };
+
+            if !flush_now {
                 continue;
             }
 
-            log::debug!("cache size threshold reached, will write to Clickhouse");
+            log::debug!("cache size threshold reached or idle timeout exceeded, will write to Clickhouse");
             self.flush_insert_cache(&insert_cache).await;
             insert_cache.clear();
             cache_size = 0;

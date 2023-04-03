@@ -14,10 +14,12 @@ use crate::config::Settings;
 
 use std::sync::Arc;
 use std::fmt::Display;
+use std::time::Duration;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
-use log;
 use regex::Regex;
+use humantime;
+use log;
 
 /// Clickhouse destination
 pub struct Clickhouse {
@@ -27,6 +29,7 @@ pub struct Clickhouse {
     username: String,
     password: String,
     cache_threshold: usize,
+    cache_idle_timeout: Duration,
     max_table_expansion: usize,
     max_table_width: usize,
     identifier_regex: Regex,
@@ -58,6 +61,11 @@ impl Destination for Clickhouse {
             .map(|v| v.as_u64().map(|u| u as usize))
             .unwrap_or(Some(cache::DEFAULT_CACHE_THRESHOLD))
             .ok_or(StorageError::Initialisation("cache_threshold parameter should be a positive number".to_string()))?;
+        let cache_idle_timeout = settings
+            .get("cache_idle_timeout")
+            .map(|v| v.as_str().map(|s| humantime::parse_duration(s).ok()).flatten())
+            .unwrap_or(Some(cache::DEFAULT_CACHE_IDLE_THRESHOLD))
+            .ok_or(StorageError::Initialisation("cache_idle_timeout parameter should be a valid duration".to_string()))?;
         let max_table_expansion = settings
             .get("max_table_expansion")
             .map(|v| v.as_u64().map(|u| u as usize))
@@ -83,6 +91,7 @@ impl Destination for Clickhouse {
             password: password.to_string(),
             database: database.to_string(),
             cache_threshold,
+            cache_idle_timeout,
             max_table_expansion,
             max_table_width,
             identifier_regex: Regex::new(r"^[a-zA-Z_][0-9a-zA-Z_]*$").expect("invalid Clickhouse idenifier REGEX"),
