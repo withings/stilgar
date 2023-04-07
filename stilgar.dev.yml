@@ -1,7 +1,8 @@
 server:
   ip: 0.0.0.0
   port: 8080
-  write_key: not-actually-secret
+  write_keys:
+    - not-actually-secret
   payload_size_limit: 1MiB
   origins:
     - http://localhost:8082

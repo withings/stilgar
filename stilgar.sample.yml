@@ -2,7 +2,8 @@
 server:
   ip: 0.0.0.0  # the IP to bind to
   port: 8080  # the port to listen on
-  write_key: not-actually-secret  # the write key
+  write_keys:  # all accepted write keys
+    - not-actually-secret
   payload_size_limit: 4MiB  # payload size limit on POST event routes
   origins:  # the list of allowed origins (CORS)
     - https://www.example.com

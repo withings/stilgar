@@ -40,7 +40,7 @@ pub struct Server {
     pub port: u16,
     /// The write key (can be left empty)
     #[serde(default)]
-    pub write_key: Arc<Option<String>>,
+    pub write_keys: Arc<Option<Vec<String>>>,
     #[serde(default = "defaults::server_payload_size_limit")]
     pub payload_size_limit: ByteSize,
     /// A list of allowed origins (CORS)
@@ -58,7 +58,7 @@ impl Default for Server {
         return Self {
             ip: defaults::server_ip(),
             port: defaults::server_port(),
-            write_key: Arc::new(None),
+            write_keys: Arc::new(None),
             payload_size_limit: defaults::server_payload_size_limit(),
             origins: vec!(),
             admin_username: Arc::new(None),

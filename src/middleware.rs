@@ -80,7 +80,7 @@ impl warp::reject::Reject for Unauthorized {}
 pub struct Forbidden;
 impl warp::reject::Reject for Forbidden {}
 
-fn validate_basic_auth(authorization_header: &str, expected_username: &str, expected_password: &str) -> bool {
+pub fn validate_basic_auth(authorization_header: &str, expected_username: &str, expected_password: &str) -> bool {
     let header_split: Vec<&str> = authorization_header.split(' ').collect();
     if !header_split.get(0).map(|t| *t == "Basic").unwrap_or(false) {
         return false;
@@ -103,13 +103,13 @@ fn validate_basic_auth(authorization_header: &str, expected_username: &str, expe
         .unwrap_or(false)
 }
 
-pub fn write_key_auth_filter(write_key_arc: Arc<Option<String>>) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
+pub fn write_key_auth_filter(write_keys_arc: Arc<Option<Vec<String>>>) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
     warp::header::optional("authorization").and_then(move |authorization: Option<String>| {
-        let write_key_arc_clone = write_key_arc.clone();
+        let write_keys_arc_clone = write_keys_arc.clone();
         async move {
-            match write_key_arc_clone.as_ref() {
+            match write_keys_arc_clone.as_ref() {
                 Some(expected) => match authorization {
-                    Some(submitted) => match validate_basic_auth(&submitted, expected, "") {
+                    Some(submitted) => match expected.iter().any(|k| validate_basic_auth(&submitted, k, "")) {
                         true => Ok(()),
                         false => Err(warp::reject::custom(Forbidden))
                     },

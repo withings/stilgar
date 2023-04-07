@@ -85,7 +85,7 @@ async fn main() {
             .or(warp::path!("v1" / "screen")).unify()
             .or(warp::path!("v1" / "track")).unify())
         .and(middleware::content_length_filter(configuration.server.payload_size_limit))
-        .and(middleware::write_key_auth_filter(configuration.server.write_key.clone()))
+        .and(middleware::write_key_auth_filter(configuration.server.write_keys.clone()))
         .and(with_beanstalk(bstk_web.proxy()))
         .and(with_schedule(configuration.forwarder.schedule.clone()))
         .and(middleware::basic_request_info())
@@ -95,7 +95,7 @@ async fn main() {
     /* Source config route to mock the Rudderstack control plane */
     let source_config_route = warp::get()
         .and(warp::path!("sourceConfig"))
-        .map(move || configuration.server.write_key.clone())
+        .map(move || configuration.server.write_keys.clone())
         .and(warp::query::<HashMap<String, String>>())
         .and_then(routes::source_config);
 

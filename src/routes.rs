@@ -71,11 +71,11 @@ pub async fn event_or_batch(beanstalk: BeanstalkProxy,
 
 
 /// Control plane mock route
-pub async fn source_config(expected_write_key: Arc<Option<String>>, query_params: HashMap<String, String>) -> Result<impl warp::Reply, warp::Rejection> {
+pub async fn source_config(expected_write_key: Arc<Option<Vec<String>>>, query_params: HashMap<String, String>) -> Result<impl warp::Reply, warp::Rejection> {
     let enabled = expected_write_key.as_ref().clone()
         .map(|expected| query_params.get("writeKey")
              .as_ref()
-             .map(|submitted| **submitted == expected)
+             .map(|submitted| expected.iter().any(|k| k == *submitted))
              .unwrap_or(false)) /* key expected but none submitted: no! */
         .unwrap_or(true); /* no key expected: ok! */
 
