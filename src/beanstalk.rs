@@ -34,6 +34,8 @@ pub enum BeanstalkError {
     UnexpectedResponse(String, String),
     #[error("beanstalk communication error: {0}")]
     CommunicationError(String),
+    #[error("job reservation timeout")]
+    ReservationTimeout,
 }
 
 /// Convenience struct: copy of the channel's transmissiting end, with some methods
@@ -183,9 +185,12 @@ impl BeanstalkProxy {
 
     /// Reserve a job from the queue
     pub async fn reserve(&self) -> Result<Job, BeanstalkError> {
-        log::debug!("reserving beanstalkd job");
-        let command_response = self.send_command(String::from("reserve\r\n")).await?;
+        let command_response = self.send_command(String::from("reserve-with-timeout 5\r\n")).await?;
         let parts: Vec<&str> = command_response.trim().split(" ").collect();
+
+        if parts.len() == 1 && parts[0] == "TIMED_OUT" {
+            return Err(BeanstalkError::ReservationTimeout);
+        }
 
         if parts.len() != 3 || parts[0] != "RESERVED" {
             return Err(BeanstalkError::UnexpectedResponse("reserve".to_string(), command_response));
@@ -210,6 +215,16 @@ impl BeanstalkProxy {
         match deleted.starts_with("DELETED") {
             true => Ok(deleted),
             false => Err(BeanstalkError::UnexpectedResponse("delete".to_string(), deleted))
+        }
+    }
+
+    /// Releases a job back into the queue
+    pub async fn release(&self, id: u64) -> BeanstalkResult {
+        log::debug!("releasing job ID {}", id);
+        let released = self.send_command(format!("release {} 0 0\r\n", id)).await?;
+        match released.starts_with("RELEASED") {
+            true => Ok(released),
+            false => Err(BeanstalkError::UnexpectedResponse("release".to_string(), released))
         }
     }
 

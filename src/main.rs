@@ -7,7 +7,7 @@ mod forwarder;
 mod middleware;
 
 use crate::beanstalk::{Beanstalk, BeanstalkProxy};
-use crate::forwarder::events_forwarder;
+use crate::forwarder::Forwarder;
 use crate::destinations::init_destinations;
 
 use tokio;
@@ -63,8 +63,11 @@ async fn main() {
         }
     };
 
+    /* Instiantiate the forwarder */
+    let mut forwarder = Forwarder::new(bstk_forwarder.proxy());
+
     /* Instantiate all Destination structs as per the configuration */
-    let destinations = match init_destinations(&configuration.destinations).await {
+    let destinations = match init_destinations(&configuration.destinations, forwarder.suspend_channel()).await {
         Ok(d) => d,
         Err(e) => {
             log::error!("destination error: {}", e);
@@ -115,7 +118,6 @@ async fn main() {
     /* Prepare the API and forwarder tasks */
     let use_proxy = bstk_web.proxy();
     let watch_proxy = bstk_forwarder.proxy();
-    let forwarder = events_forwarder(bstk_forwarder.proxy(), &destinations);
     let webservice = warp::serve(
         any_event_route.or(source_config_route).or(status_route).or(ping_route)
             .with(middleware::cors(&configuration.server.origins))
@@ -145,7 +147,7 @@ async fn main() {
             match watch_proxy.watch_tube("stilgar").await {
                 Ok(_) => {
                     log::info!("forwarder ready for events!");
-                    forwarder.await
+                    forwarder.run_for(&destinations).await
                 },
                 Err(e) => {
                     log::error!("failed to watch beanstalkd tube on forwarder connection: {}", e);

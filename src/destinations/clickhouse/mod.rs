@@ -4,6 +4,7 @@ mod primitives;
 mod cache;
 
 use crate::destinations::{Destination, StorageResult, StorageError};
+use crate::forwarder::SuspendTrigger;
 use crate::events::alias::Alias;
 use crate::events::group::Group;
 use crate::events::identify::Identify;
@@ -23,6 +24,7 @@ use log;
 
 /// Clickhouse destination
 pub struct Clickhouse {
+    suspend_trigger: SuspendTrigger,
     query: mpsc::Sender<primitives::GenericQuery>,
     cache: mpsc::Sender<cache::CacheInsert>,
     database: String,
@@ -39,7 +41,7 @@ pub struct Clickhouse {
 #[async_trait]
 impl Destination for Clickhouse {
     /// Create a Clickhouse destination and connects to the database
-    async fn new(settings: &Settings) -> Result<Arc<Self>, StorageError> {
+    async fn new(settings: &Settings, suspend_trigger: SuspendTrigger) -> Result<Arc<Self>, StorageError> {
         let host = settings
             .get("host").ok_or(StorageError::Initialisation("missing host parameter".to_string()))?
             .as_str().ok_or(StorageError::Initialisation("host parameter should be a string".to_string()))?;
@@ -77,14 +79,13 @@ impl Destination for Clickhouse {
             .unwrap_or(Some(cache::DEFAULT_MAX_TABLE_WIDTH))
             .ok_or(StorageError::Initialisation("max_table_width parameter should be a positive number".to_string()))?;
 
-        let client = grpc::Client::connect(format!("http://{}:{}", host, port)).await
-            .map_err(|e| StorageError::Connectivity(e.to_string()))?;
-
-        log::debug!("connected to clickhouse at {}:{}", host, port);
+        let url = format!("http://{}:{}", host, port);
+        log::debug!("connected to clickhouse at {}", url);
 
         let (query_tx, query_rx) = mpsc::channel(32); // TODO 32?
         let (cache_tx, cache_rx) = mpsc::channel(32); // TODO 32?
         let clickhouse = Self {
+            suspend_trigger,
             query: query_tx,
             cache: cache_tx,
             username: username.to_string(),
@@ -101,7 +102,7 @@ impl Destination for Clickhouse {
         /* Query task: owns the TCP stream, takes in queries as messages */
         let clickhouse_query = clickhouse_arc.clone();
         tokio::task::spawn(async move {
-            clickhouse_query.run_query_channel(client, query_rx).await;
+            clickhouse_query.run_query_channel(url, query_rx).await;
         });
 
         /* Cache task: owns the cache, takes in write requests are messages */
@@ -197,7 +198,7 @@ impl Destination for Clickhouse {
         for (key, value) in &track.properties {
             subtrack_kv.insert(key.into(), Self::json_to_string(value));
         }
-        self.insert(track.event.clone(), subtrack_kv).await; // TODO do not trust!
+        self.insert(track.event.clone(), subtrack_kv).await;
         Ok(())
     }
 }

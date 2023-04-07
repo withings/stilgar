@@ -1,4 +1,5 @@
 use crate::destinations::{Destination, StorageResult, StorageError};
+use crate::forwarder::SuspendTrigger;
 use crate::events::alias::Alias;
 use crate::events::group::Group;
 use crate::events::identify::Identify;
@@ -23,7 +24,7 @@ impl Display for Blackhole {
 #[async_trait]
 impl Destination for Blackhole {
     /// Returns pretty much nothing
-    async fn new(_settings: &Settings) -> Result<Arc<Self>, StorageError> {
+    async fn new(_settings: &Settings, _suspend_trigger: SuspendTrigger) -> Result<Arc<Self>, StorageError> {
         Ok(Arc::new(Blackhole{}))
     }
 

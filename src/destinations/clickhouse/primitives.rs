@@ -4,9 +4,52 @@ use crate::destinations::clickhouse::{Clickhouse, StorageResult, StorageError};
 
 use std::fmt::Debug;
 use std::collections::HashMap;
+use tokio;
 use tokio::sync::{mpsc, oneshot};
 use async_stream::stream;
 use serde_json;
+
+/// Clickhouse error codes which can trigger a forwarder suspend
+const SUSPEND_ERROR_CODES: [i64; 35] = [
+    3,    /* UNEXPECTED_END_OF_FILE */
+    74,   /* CANNOT_READ_FROM_FILE_DESCRIPTOR */
+    75,   /* CANNOT_WRITE_TO_FILE_DESCRIPTOR */
+    76,   /* CANNOT_WRITE_TO_FILE_DESCRIPTOR */
+    77,   /* CANNOT_CLOSE_FILE */
+    87,   /* CANNOT_SEEK_THROUGH_FILE */
+    88,   /* CANNOT_TRUNCATE_FILE */
+    95,   /* CANNOT_READ_FROM_SOCKET */
+    96,   /* CANNOT_WRITE_TO_SOCKET */
+    159,  /* TIMEOUT_EXCEEDED */
+    160,  /* TOO_SLOW */
+    164,  /* READONLY */
+    172,  /* CANNOT_CREATE_DIRECTORY */
+    173,  /* CANNOT_ALLOCATE_MEMORY */
+    198,  /* DNS_ERROR */
+    201,  /* QUOTA_EXCEEDED */
+    202,  /* TOO_MANY_SIMULTANEOUS_QUERIES */
+    203,  /* NO_FREE_CONNECTION */
+    204,  /* CANNOT_FSYNC */
+    209,  /* SOCKET_TIMEOUT */
+    210,  /* NETWORK_ERROR */
+    236,  /* ABORTED */
+    241,  /* MEMORY_LIMIT_EXCEEDED */
+    242,  /* TABLE_IS_READ_ONLY */
+    243,  /* NOT_ENOUGH_SPACE */
+    274,  /* AIO_READ_ERROR */
+    275,  /* AIO_WRITE_ERROR */
+    290,  /* LIMIT_EXCEEDED */
+    298,  /* CANNOT_PIPE */
+    299,  /* CANNOT_FORK */
+    301,  /* CANNOT_CREATE_CHILD_PROCESS */
+    303,  /* CANNOT_SELECT */
+    335,  /* BARRIER_TIMEOUT */
+    373,  /* SESSION_IS_LOCKED */
+    1002, /* UNKNOWN_ERROR */
+];
+
+/// Network timeout when communicating with Clickhouse
+const NETWORK_TIMEOUT: u64 = 5;
 
 /// A query without I/O (no input rows like INSERT or results like SELECT)
 #[derive(Debug)]
@@ -75,10 +118,18 @@ impl Clickhouse {
         query_info
     }
 
+    /// Convenience function: returns a query timeout future
+    fn network_timeout_future() -> tokio::time::Sleep {
+        tokio::time::sleep(tokio::time::Duration::from_secs(NETWORK_TIMEOUT))
+    }
+
     /// Executes a non-interactive query and returns the response
     async fn nio_query(client: &mut grpc::Client, query: grpc::QueryInfo) -> StorageResult {
-        let execute = client.execute_query(query.clone()).await
-            .map_err(|e| StorageError::Connectivity(e.to_string()))?;
+        let query_future = client.execute_query(query.clone());
+        let execute = tokio::select! {
+            _ = Self::network_timeout_future() => return Err(StorageError::Connectivity("query timeout".into())),
+            exec_result = query_future => exec_result.map_err(|e| StorageError::Connectivity(e.to_string()))?,
+        };
 
         match &execute.get_ref().exception {
             Some(e) => Err(StorageError::QueryFailure(e.code as i64, query.query.clone(), e.display_text.clone())),
@@ -92,8 +143,12 @@ impl Clickhouse {
     /// result sets. For this reason, this function does not stream the
     /// results: it waits for everything and returns the lot as a Vec
     async fn run_select_query(client: &mut grpc::Client, query: grpc::QueryInfo) -> SelectResult {
-        let mut execute = client.execute_query_with_stream_output(query.clone()).await
-            .map_err(|e| StorageError::Connectivity(e.to_string()))?;
+        let query_future = client.execute_query_with_stream_output(query.clone());
+        let mut execute = tokio::select! {
+            _ = Self::network_timeout_future() => return Err(StorageError::Connectivity("query timeout".into())),
+            exec_result = query_future => exec_result.map_err(|e| StorageError::Connectivity(e.to_string()))?,
+        };
+
         let stream = execute.get_mut();
         let mut rows: ResultSet = vec!();
 
@@ -166,8 +221,11 @@ impl Clickhouse {
         };
 
         /* Actually run the query */
-        let execute = client.execute_query_with_stream_input(stream).await
-            .map_err(|e| StorageError::Connectivity(e.to_string()))?;
+        let query_future = client.execute_query_with_stream_input(stream);
+        let execute = tokio::select! {
+            _ = Self::network_timeout_future() => return Err(StorageError::Connectivity("query timeout".into())),
+            exec_result = query_future => exec_result.map_err(|e| StorageError::Connectivity(e.to_string()))?,
+        };
 
         match &execute.get_ref().exception {
             Some(e) => Err(StorageError::QueryFailure(e.code as i64, query_str, e.display_text.clone())),
@@ -175,26 +233,67 @@ impl Clickhouse {
         }
     }
 
+    async fn get_client(url: String) -> Result<grpc::Client, StorageError> {
+        tokio::select! {
+            _ = Self::network_timeout_future() => return Err(StorageError::Connectivity("connect timeout".into())),
+            connect_result = grpc::Client::connect(url) => connect_result.map_err(|e| StorageError::Connectivity(e.to_string())),
+        }
+    }
+
+    // Handles a generic Clickhouse error, possibly asking the forwarder for a break
+    async fn handle_error_for_suspend(&self, err: &StorageError) {
+        let suspend = match err {
+            StorageError::Connectivity(_) => true,
+            StorageError::QueryFailure(code, _, _) => SUSPEND_ERROR_CODES.contains(code),
+            _ => false,
+        };
+
+        if suspend {
+            log::error!("clickhouse error: {}", err.to_string());
+            self.suspend_trigger.send(()).await.ok();
+        } else {
+            log::warn!("clickhouse: {}", err.to_string());
+        }
+    }
+
     /// Query task: receives query messages and processes them
-    pub async fn run_query_channel(&self, mut client: grpc::Client, mut rx: mpsc::Receiver<GenericQuery>) {
+    pub async fn run_query_channel(&self, url: String, mut rx: mpsc::Receiver<GenericQuery>) {
         log::debug!("running clickhouse channel for {}", self.database);
+        let mut client = Self::get_client(url.clone()).await.expect("failed to connect to Clickhouse");
+        log::debug!("connection to {} established", url);
 
         while let Some(command) = rx.recv().await {
-            match command {
+            let error = match command {
                 GenericQuery::NIO(ddl) => {
-                    let query = self.prepare_base(ddl.query);
-                    ddl.return_tx.send(Self::nio_query(&mut client, query).await)
-                        .expect("failed to forward read query result to querying task");
+                    let result = Self::nio_query(&mut client, self.prepare_base(ddl.query)).await;
+                    let error = result.as_ref().err().map(|e| e.clone());
+                    ddl.return_tx.send(result).expect("failed to forward read query result to querying task");
+                    error
                 },
                 GenericQuery::Select(read) => {
-                    let query = self.prepare_select(&read);
-                    read.return_tx.send(Self::run_select_query(&mut client, query).await)
-                        .expect("failed to forward read query result to querying task");
+                    let result = Self::run_select_query(&mut client, self.prepare_select(&read)).await;
+                    let error = result.as_ref().err().map(|e| e.clone());
+                    read.return_tx.send(result).expect("failed to forward read query result to querying task");
+                    error
                 },
                 GenericQuery::Insert(write) => {
-                    let query = self.prepare_insert(&write);
-                    write.return_tx.send(Self::run_insert_query(&mut client, query, write.rows_channel).await)
-                        .expect("failed to forward write query result to querying task");
+                    let result = Self::run_insert_query(&mut client, self.prepare_insert(&write), write.rows_channel).await;
+                    let error = result.as_ref().err().map(|e| e.clone());
+                    write.return_tx.send(result).expect("failed to forward write query result to querying task");
+                    error
+                },
+            };
+
+            if let Some(err) = error {
+                self.handle_error_for_suspend(&err).await;
+                if let StorageError::Connectivity(_) = err {
+                    match Self::get_client(url.clone()).await {
+                        Ok(new_client) => {
+                            client = new_client;
+                            log::info!("successfully reconnected to clickhouse");
+                        },
+                        Err(e) => log::warn!("failed to reconnect to clickhouse, will keep current connection: {}", e)
+                    }
                 }
             }
         }

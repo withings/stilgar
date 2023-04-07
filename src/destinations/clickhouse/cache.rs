@@ -135,47 +135,41 @@ impl Clickhouse {
             /* Try to write the cache entry to Clickhouse */
             let mut write_result = self.try_write(cache_entry).await;
 
-            if let Err(StorageError::QueryFailure(code, _, _)) = write_result {
+            if let Err(StorageError::QueryFailure(ERR_NO_SUCH_TABLE, _, _)) = &write_result {
                 /* The table does not exist (track) : create it and try again */
-                if code == ERR_NO_SUCH_TABLE {
-                    log::debug!("missing table: {}, will try to create", cache_entry.table);
+                log::debug!("missing table: {}, will try to create", cache_entry.table);
 
-                    match self.get_basic_table_ddl(&cache_entry.table) {
-                        Ok(ddl) => {
-                            self.nio(ddl).await.expect("failed to create table dynamically");
-                        },
-                        Err(e) => {
-                            log::error!("failed to create table {}: {}", cache_entry.table, e.to_string());
-                            continue;
-                        }
-                    }
-
-                    write_result = self.try_write(cache_entry).await;
-                }
-            }
-
-            if let Err(StorageError::QueryFailure(code, _, msg)) = write_result {
-                /* At least one column is missing, add it and try again
-                 * This is very likely to happen after CREATE TABLE above */
-                if code == ERR_NO_SUCH_COLUMN_IN_TABLE {
-                    /* Infer types for all columns in this entry */
-                    let entry_columns = cache_entry.columns.iter().enumerate()
-                        .map(|(i, c)| (c.clone(), Self::infer_vec_type(cache_entry.rows.iter().map(|r| &r[i]))))
-                        .collect::<HashMap<String, String>>();
-
-                    /* Extend the table if necessary */
-                    if let Err(e) = self.extend_existing_table(&cache_entry.table, entry_columns).await {
-                        log::error!("failed to extend table {}: {}", cache_entry.table, e.to_string());
+                match self.get_basic_table_ddl(&cache_entry.table) {
+                    Ok(ddl) => {
+                        self.nio(ddl).await.expect("failed to create table dynamically");
+                    },
+                    Err(e) => {
+                        log::error!("failed to create table {}: {}", cache_entry.table, e.to_string());
                         continue;
                     }
+                }
 
-                    /* Try storing again */
-                    if let Err(e) = self.try_write(cache_entry).await {
-                        log::error!("failed to insert rows after table alterations on {}, will skip block: {}",
-                                    cache_entry.table, e.to_string());
-                    }
-                } else {
-                    log::error!("unexpected Clickhouse error: {} {}", code, msg);
+                write_result = self.try_write(cache_entry).await;
+            }
+
+            if let Err(StorageError::QueryFailure(ERR_NO_SUCH_COLUMN_IN_TABLE, _, _)) = &write_result {
+                /* At least one column is missing, add it and try again
+                 * This is very likely to happen after CREATE TABLE above */
+                /* Infer types for all columns in this entry */
+                let entry_columns = cache_entry.columns.iter().enumerate()
+                    .map(|(i, c)| (c.clone(), Self::infer_vec_type(cache_entry.rows.iter().map(|r| &r[i]))))
+                    .collect::<HashMap<String, String>>();
+
+                /* Extend the table if necessary */
+                if let Err(e) = self.extend_existing_table(&cache_entry.table, entry_columns).await {
+                    log::error!("failed to extend table {}: {}", cache_entry.table, e.to_string());
+                    continue;
+                }
+
+                /* Try storing again */
+                if let Err(e) = self.try_write(cache_entry).await {
+                    log::error!("failed to insert rows after table alterations on {}, will skip block: {}",
+                                cache_entry.table, e.to_string());
                 }
             }
         }
