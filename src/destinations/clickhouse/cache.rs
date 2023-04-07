@@ -141,10 +141,13 @@ impl Clickhouse {
 
                 match self.get_basic_table_ddl(&cache_entry.table) {
                     Ok(ddl) => {
-                        self.nio(ddl).await.expect("failed to create table dynamically");
+                        if let Err(e) = self.nio(ddl).await {
+                            log::error!("failed to create table {}: {}", cache_entry.table, e.to_string());
+                            continue;
+                        }
                     },
                     Err(e) => {
-                        log::error!("failed to create table {}: {}", cache_entry.table, e.to_string());
+                        log::error!("failed to generate DDL for table {}: {}", cache_entry.table, e.to_string());
                         continue;
                     }
                 }
