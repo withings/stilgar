@@ -5,10 +5,8 @@ use crate::destinations::Destinations;
 
 use std::time::{Instant, Duration};
 use serde_json;
-use chrono;
 use tokio;
 use tokio::sync::mpsc;
-use cron;
 use log;
 
 /// Sleep duration after a reserve failure
@@ -97,7 +95,7 @@ impl Forwarder {
                 for subevent in batch_event.batch.iter_mut() {
                     set_common_attribute!(subevent, sent_at, batch_event.sent_at);
                     match serde_json::to_string(&subevent) {
-                        Ok(subevent_str) => if let Err(e) = self.beanstalk.put(subevent_str, 0).await {
+                        Ok(subevent_str) => if let Err(e) = self.beanstalk.put(subevent_str).await {
                             log::warn!("failed to submit subevent from batch: {}", e);
                         },
                         Err(e) => {
@@ -129,13 +127,4 @@ impl Forwarder {
             }
         }
     }
-}
-
-/// Computes the time, in seconds, to the next processing slot
-pub fn delay_from_schedule(schedule: &cron::Schedule) -> u64 {
-    let upcoming = schedule.upcoming(chrono::Local).next()
-        .expect("failed to get upcoming time from forward CRON expression");
-    let duration = upcoming - chrono::Local::now();
-    let seconds = duration.num_seconds();
-    if seconds > 0 { seconds as u64 } else { 0 }
 }

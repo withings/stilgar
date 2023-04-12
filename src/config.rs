@@ -5,18 +5,15 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use directories::ProjectDirs;
-use serde_with::{DisplayFromStr, serde_as};
 use byte_unit::Byte as ByteSize;
+use serde_with::serde_as;
 use serde_yaml;
-use cron;
 use log;
 
 /// Configuration defaults
 pub mod defaults {
     use std::net::{IpAddr, Ipv4Addr};
     use byte_unit::{Byte as ByteSize, ByteUnit};
-    use std::str::FromStr;
-    use cron;
 
     pub fn server_ip() -> IpAddr { IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) }
     pub fn server_port() -> u16 { 8080 }
@@ -25,7 +22,6 @@ pub mod defaults {
     pub fn logging_level() -> log::LevelFilter { log::LevelFilter::Info }
 
     pub fn forwarder_beanstalk() -> String { String::from("127.0.0.1:11300") }
-    pub fn forwarder_schedule() -> cron::Schedule { cron::Schedule::from_str("0 * * * * * *").unwrap() }
 }
 
 /// Server block
@@ -91,10 +87,6 @@ pub struct Forwarder {
     /// Hostname and port to the beanstalkd server
     #[serde(default = "defaults::forwarder_beanstalk")]
     pub beanstalk: String,
-    /// A CRON to define the processing time slots, supports seconds
-    #[serde_as(as = "DisplayFromStr")]
-    #[serde(default = "defaults::forwarder_schedule")]
-    pub schedule: cron::Schedule,
 }
 
 impl Default for Forwarder {
@@ -102,7 +94,6 @@ impl Default for Forwarder {
     fn default() -> Self {
         return Self {
             beanstalk: defaults::forwarder_beanstalk(),
-            schedule: defaults::forwarder_schedule(),
         }
     }
 }

@@ -14,7 +14,6 @@ logging:
 
 forwarder:
   beanstalk: beanstalkd:11300
-  schedule: "* * * * * * *"
 
 destinations:
   - type: blackhole

@@ -174,9 +174,9 @@ impl BeanstalkProxy {
     }
 
     /// Put a job into the queue
-    pub async fn put(&self, job: String, delay: u64) -> BeanstalkResult {
+    pub async fn put(&self, job: String) -> BeanstalkResult {
         log::debug!("putting beanstalkd job, {} byte(s)", job.len());
-        let inserted = self.send_command(format!("put 0 {} 60 {}\r\n{}\r\n", delay, job.len(), job)).await?;
+        let inserted = self.send_command(format!("put 0 0 60 {}\r\n{}\r\n", job.len(), job)).await?;
         match inserted.starts_with("INSERTED ") {
             true => Ok(inserted),
             false => Err(BeanstalkError::UnexpectedResponse("put".to_string(), inserted))

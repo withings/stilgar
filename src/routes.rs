@@ -1,6 +1,5 @@
 use crate::beanstalk::BeanstalkProxy;
 use crate::events::any::{AnyEvent, EventOrBatch, set_common_attribute};
-use crate::forwarder::delay_from_schedule;
 use crate::middleware;
 
 use std::collections::HashMap;
@@ -9,7 +8,6 @@ use chrono::Utc;
 use serde_json;
 use warp;
 use http;
-use cron;
 
 /// Rewrites a single event's received_at
 fn overwrite_event_received_at(event: &mut AnyEvent) {
@@ -29,7 +27,6 @@ fn overwrite_any_received_at(event_or_batch: &mut EventOrBatch) {
 
 /// Actual event route: adds the received_at field and tries to reserialise for beanstalkd
 pub async fn event_or_batch(beanstalk: BeanstalkProxy,
-                            schedule: cron::Schedule,
                             request_info: middleware::BasicRequestInfo,
                             payload: String) -> Result<impl warp::Reply, warp::Rejection> {
     let event_or_batch = serde_json::from_str::<EventOrBatch>(&payload);
@@ -60,7 +57,7 @@ pub async fn event_or_batch(beanstalk: BeanstalkProxy,
     log::debug!("enqueuing job: {}", &job_payload);
 
     /* Enqueue with a delay */
-    match beanstalk.put(job_payload, delay_from_schedule(&schedule)).await {
+    match beanstalk.put(job_payload).await {
         Ok(_) => Ok(warp::reply::with_status("OK", warp::http::StatusCode::OK)),
         Err(e) => {
             log::warn!("could not enqueue job: {}", e);
@@ -101,12 +98,9 @@ pub async fn ping() -> Result<impl warp::Reply, warp::Rejection> {
 
 
 /// Status route
-pub async fn status(schedule: cron::Schedule, beanstalk: BeanstalkProxy) -> Result<impl warp::Reply, warp::Rejection> {
+pub async fn status(beanstalk: BeanstalkProxy) -> Result<impl warp::Reply, warp::Rejection> {
     let mut all_stats: HashMap<String, serde_json::Value> = HashMap::new();
     let mut all_good = true;
-
-    /* stilgar info */
-    all_stats.insert("next_forward_in".into(), delay_from_schedule(&schedule).into());
 
     /* beanstalkd stats */
     match beanstalk.stats().await {

@@ -17,7 +17,6 @@ byte-unit = { version = "4.0", features = ["serde"] }
 bytes = "1.4"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
-cron = "0.12"
 directories = "4"
 flate2 = "1.0"
 http = "0.2"

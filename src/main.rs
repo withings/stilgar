@@ -11,7 +11,6 @@ use crate::forwarder::Forwarder;
 use crate::destinations::init_destinations;
 
 use tokio;
-use cron;
 use log;
 use warp;
 use simple_logger::SimpleLogger;
@@ -87,7 +86,6 @@ async fn main() {
         .and(middleware::content_length_filter(configuration.server.payload_size_limit))
         .and(middleware::write_key_auth_filter(configuration.server.write_keys.clone()))
         .and(with_beanstalk(bstk_web.proxy()))
-        .and(with_schedule(configuration.forwarder.schedule.clone()))
         .and(middleware::basic_request_info())
         .and(middleware::compressible_body())
         .and_then(routes::event_or_batch);
@@ -106,7 +104,6 @@ async fn main() {
             configuration.server.admin_username.clone(),
             configuration.server.admin_password.clone()
         ))
-        .and(with_schedule(configuration.forwarder.schedule.clone()))
         .and(with_beanstalk(bstk_web.proxy()))
         .and_then(routes::status);
 
@@ -156,10 +153,6 @@ async fn main() {
             }
         }
     );
-}
-
-fn with_schedule(schedule: cron::Schedule) -> impl Filter<Extract = (cron::Schedule,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || schedule.clone())
 }
 
 fn with_beanstalk(proxy: BeanstalkProxy) -> impl Filter<Extract = (BeanstalkProxy,), Error = std::convert::Infallible> + Clone {
