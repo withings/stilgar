@@ -1,31 +1,18 @@
 # Stilgar: overview and design
 
-Understanding Stilgar boils down to knowing about 2 of its characteristics:
+Understanding Stilgar boils down to knowing one thing about it: it is
+both asynchronous (in code, and through beanstalkd) and
+multi-threaded. This explains most of the design decisions made in the
+code base.
 
-1. It is both asynchronous and multi-threaded, for double the pleasure
-2. Events are queued for a time before they are dispatched to the destinations
+## Basics
 
 For any destination, the basic lifecycle of an event is a follows:
 
-    +-------+      +---------+       compute         +------------+
-    | event +------> /page   +-----> time to   ------> beanstalkd |
-    +-------+      | /screen |       next            | queue with |
-                   |   ...   |       processing      | delay      |
-                   +---------+       slot            +------------+
-                    API tasks                              .
-                                                           .
-
-                                                       wait until
-                                                       next slot
-                                                           .
-                                                           .
-                           +------------+         +------------------+
-                           | blackhole  |         | start processing |
-                           | clickhouse <-------- | queued events    |
-                           | ...        |         +------------------+
-                           +------------+           forwarder task
-                            Destination
-                            handlers
+1. Events are sent to the Stilgar web service
+2. The payloads are queued into beanstalkd
+3. A separate forwarder thread pops events from the queue and forwards
+   them to your destinations
 
 Events are received in POST on the same endpoints as Rudderstack
 `[main.rs, routes.rs]`, that is:
@@ -42,19 +29,80 @@ Events are received in POST on the same endpoints as Rudderstack
 > is used to mock Rudderstack's control plane, as some SDKs (JS) will
 > refuse to run if a control plane does not validate the write key.
 
-Once the event is successfully parsed, Stilgar schedules it for
-processing. Events are not processed at reception, but in batch at
-regular intervals. This is implemented using a delayed beanstalkd
-queue: when the event is received, the time to the next processing
-round is computed and used as a delay.
+Note that the forwarder has very little logic: it can split batch
+events into individual events, and it can delay processing in case of
+destination errors. Other than that, it simply calls functions defined
+by each destination `[destinations/mod.rs]`.
 
-When the next processing time slot comes, events become available to
-Stilgar's forwarder task, which starts popping them from beanstalkd
-`[forwarder.rs]`. Those are then forwarded to the destinations. The
-forwarder has very little logic: the only bit of computing it does is
-immediately rescheduling *batch* events as individual events, without
-delay. For other events, it calls functions defined by each
-destination `[destinations/mod.rs]`.
+## Monitoring
+
+Stilgar exposes 2 endpoints for monitoring:
+
+- A `/ping` route which simply replies with *pong*. This route does
+  not require authentication and can be used to determine whether
+  Stilgar is running or not (eg. in a healthcheck).
+- A `/status` route which provides some basic statistics, mostly about
+  the beanstalkd queue. This route supports authentication, using
+  admin credentials (not the write keys).
+
+# Global event flow diagram
+
+    Web services logic
+    ------------------
+
+            +-------+      +---------+      +------------+
+            | event +------> /page   +------> beanstalkd |
+            +-------+      | /screen |      |   queue    |
+                           |   ...   |      +------+-----+
+                           +---------+             |
+                            API tasks              |
+                                                   |
+                                                   | reserve
+    Forwarder logic                                | job
+    ---------------                                |
+                                                   |
+                                  +-----------+    |
+                                  | forwarder <----+   wait for
+                                  +-----+---^-+        backoff
+                                        |   |          request +-----------------+
+                                        |   +------------------+ backoff channel |
+                                        |                      +--------^--------+
+                                        |                               |
+           +----------------------------+------------+                  |
+           |                                         |                  |
+           | event                           backoff |                  |
+           | is a                           recently |                  |
+           | batch                         refreshed |                  |
+           |                                         |                  |
+           |                                         |                  |
+     +-----v------+     +--------------+     +-------v-----+            |
+     | split into |     |   forward    |     |    apply    |            |
+     | individual +----->      to      <-----+ exponential |            |
+     | events     |     | destinations | ... |   backoff   |            |
+     +------------+     +------+-------+     +-------------+            |
+                               |                                        |
+                               |                                        |
+                               |                                        |
+     Destination logic         |                              on error, |
+     -----------------         +-------------------+            notify  |
+                               |                   |           backoff  |
+                               v                   v           channel  |
+                        +- Blackhole -+  +--- Clickhouse --+            |
+                        |             |  |                 |            |
+                        | +---------+ |  | +-------------+ |            |
+                        | | discard | |  | | write event | |            |
+                        | |  event  | |  | |  to cache   | |            |
+                        | +----+----+ |  | +-------+-----+ |            |
+                        |      |      |  |     ... |       +------------+
+                        +------+------+  | +-------v-----+ |
+                               |         | | flush cache | |
+                               v         | |  to server  | |
+                               x         | +-------+-----+ |
+                                         |         |       |
+                                         +---------+-------+
+                                                   |
+                                                   v
+                                              destination
 
 ## Destinations
 
@@ -107,6 +155,26 @@ on. Once the cache has enough entries, each group is taken separately
 and sent in TSV format over to Clickhouse. This means each `INSERT`
 query always covers the same set of columns, which allows us to avoid
 inefficient input formats like TabSeparatedWithNames or JSONEachRow.
+
+## Forwarder backoff
+
+At times, it might be necessary to slow down or stop events intake as
+destination issues arise and resolve. For example, should your
+Clickhouse destination become unavailable due to a network issue, it
+would be wise to let events accumulate in the beanstalkd queue rather
+than the in-memory destination cache.
+
+To this end, every destination known to Stilgar is given a special
+*switch* at initialisation through which it can interact with the
+forwarder. Sending a message over that channel will notify the
+forwarder that something has gone wrong. When that happens, it will
+begin applying an exponential backoff on the dequeuing process, until
+enough time passes without a notification.
+
+This will progressively slow down the forwarding process and allow
+events to stack up in the beanstalkd queue. Configuring your queue to
+be persisted on disk will allow you to recover your events even if the
+destination issue ends up requiring a Stilgar restart.
 
 ## A note about asynchronous Rust
 
@@ -215,5 +283,5 @@ concurrency, not parallelism.
 
 ## Contributing
 
-See [doc/contributing.md](doc/contributing.md) next for more details
-about the developer setup.
+See [contributing.md](contributing.md) next for more details about the
+developer setup.
