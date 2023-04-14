@@ -4,7 +4,6 @@ mod primitives;
 mod cache;
 
 use crate::destinations::{Destination, StorageResult, StorageError};
-use crate::forwarder::SuspendTrigger;
 use crate::events::alias::Alias;
 use crate::events::group::Group;
 use crate::events::identify::Identify;
@@ -22,9 +21,47 @@ use regex::Regex;
 use humantime;
 use log;
 
+/// Clickhouse error codes which can trigger a forwarder backoff
+const SUSPEND_ERROR_CODES: [i64; 35] = [
+    3,    /* UNEXPECTED_END_OF_FILE */
+    74,   /* CANNOT_READ_FROM_FILE_DESCRIPTOR */
+    75,   /* CANNOT_WRITE_TO_FILE_DESCRIPTOR */
+    76,   /* CANNOT_WRITE_TO_FILE_DESCRIPTOR */
+    77,   /* CANNOT_CLOSE_FILE */
+    87,   /* CANNOT_SEEK_THROUGH_FILE */
+    88,   /* CANNOT_TRUNCATE_FILE */
+    95,   /* CANNOT_READ_FROM_SOCKET */
+    96,   /* CANNOT_WRITE_TO_SOCKET */
+    159,  /* TIMEOUT_EXCEEDED */
+    160,  /* TOO_SLOW */
+    164,  /* READONLY */
+    172,  /* CANNOT_CREATE_DIRECTORY */
+    173,  /* CANNOT_ALLOCATE_MEMORY */
+    198,  /* DNS_ERROR */
+    201,  /* QUOTA_EXCEEDED */
+    202,  /* TOO_MANY_SIMULTANEOUS_QUERIES */
+    203,  /* NO_FREE_CONNECTION */
+    204,  /* CANNOT_FSYNC */
+    209,  /* SOCKET_TIMEOUT */
+    210,  /* NETWORK_ERROR */
+    236,  /* ABORTED */
+    241,  /* MEMORY_LIMIT_EXCEEDED */
+    242,  /* TABLE_IS_READ_ONLY */
+    243,  /* NOT_ENOUGH_SPACE */
+    274,  /* AIO_READ_ERROR */
+    275,  /* AIO_WRITE_ERROR */
+    290,  /* LIMIT_EXCEEDED */
+    298,  /* CANNOT_PIPE */
+    299,  /* CANNOT_FORK */
+    301,  /* CANNOT_CREATE_CHILD_PROCESS */
+    303,  /* CANNOT_SELECT */
+    335,  /* BARRIER_TIMEOUT */
+    373,  /* SESSION_IS_LOCKED */
+    1002, /* UNKNOWN_ERROR */
+];
+
 /// Clickhouse destination
 pub struct Clickhouse {
-    suspend_trigger: SuspendTrigger,
     query: mpsc::Sender<primitives::GenericQuery>,
     cache: mpsc::Sender<cache::CacheInsert>,
     database: String,
@@ -41,7 +78,7 @@ pub struct Clickhouse {
 #[async_trait]
 impl Destination for Clickhouse {
     /// Create a Clickhouse destination and connects to the database
-    async fn new(settings: &Settings, suspend_trigger: SuspendTrigger) -> Result<Arc<Self>, StorageError> {
+    async fn new(settings: &Settings) -> Result<Arc<Self>, StorageError> {
         let host = settings
             .get("host").ok_or(StorageError::Initialisation("missing host parameter".to_string()))?
             .as_str().ok_or(StorageError::Initialisation("host parameter should be a string".to_string()))?;
@@ -85,7 +122,6 @@ impl Destination for Clickhouse {
         let (query_tx, query_rx) = mpsc::channel(32); // TODO 32?
         let (cache_tx, cache_rx) = mpsc::channel(32); // TODO 32?
         let clickhouse = Self {
-            suspend_trigger,
             query: query_tx,
             cache: cache_tx,
             username: username.to_string(),
@@ -117,6 +153,15 @@ impl Destination for Clickhouse {
         Ok(clickhouse_arc)
     }
 
+    /// Have the forwarder back off on connectivity issues and some return codes
+    fn error_is_critical(&self, err: &StorageError) -> bool {
+        match err {
+            StorageError::Connectivity(_) => true,
+            StorageError::QueryFailure(code, _, _) => SUSPEND_ERROR_CODES.contains(code),
+            _ => false,
+        }
+    }
+
     /// Sends an alias event to cache
     async fn alias(&self, alias: &Alias) -> StorageResult {
         let new_id = alias.user_id.as_ref().unwrap_or(&alias.common.anonymous_id);
@@ -128,8 +173,7 @@ impl Destination for Clickhouse {
         let mut kv = Self::map_common_fields(&alias.common);
         kv.insert("user_id".into(), alias.user_id.as_ref().map(|i| i.clone()));
         kv.insert("previous_id".into(), Some(alias.previous_id.clone()));
-        self.insert("aliases".into(), kv).await;
-        Ok(())
+        self.insert("aliases".into(), kv).await
     }
 
     /// Sends a group mapping to cache
@@ -140,8 +184,7 @@ impl Destination for Clickhouse {
         for (key, value) in &group.traits {
             kv.insert(format!("context_traits_{}", key), Self::json_to_string(value));
         }
-        self.insert("groups".into(), kv).await;
-        Ok(())
+        self.insert("groups".into(), kv).await
     }
 
     /// Sends an identify event to cache and updates the users table
@@ -154,12 +197,11 @@ impl Destination for Clickhouse {
 
         /* store the identify event itself, with 'user_id' set */
         kv.insert("user_id".into(), Some(identify.user_id.clone()));
-        self.insert("identifies".into(), kv).await;
+        self.insert("identifies".into(), kv).await?;
 
         /* upsert the user, with 'id' this time (table is an AggregatingMergeTree) */
         users_kv.insert("id".into(), Some(identify.user_id.clone()));
-        self.insert("users".into(), users_kv).await;
-        Ok(())
+        self.insert("users".into(), users_kv).await
     }
 
     /// Sends a page event to cache
@@ -171,8 +213,7 @@ impl Destination for Clickhouse {
         for (key, value) in &page.properties {
             kv.insert(key.into(), Self::json_to_string(value));
         }
-        self.insert("pages".into(), kv).await;
-        Ok(())
+        self.insert("pages".into(), kv).await
     }
 
     /// Sends a screen event to cache
@@ -184,8 +225,7 @@ impl Destination for Clickhouse {
         for (key, value) in &screen.properties {
             kv.insert(key.into(), Self::json_to_string(value));
         }
-        self.insert("screens".into(), kv).await;
-        Ok(())
+        self.insert("screens".into(), kv).await
     }
 
     /// Sends a custom (track) event to cache
@@ -194,12 +234,11 @@ impl Destination for Clickhouse {
         track_kv.insert("event".into(), Some(track.event.clone()));
         track_kv.insert("user_id".into(), track.user_id.as_ref().map(|i| i.clone()));
         let mut subtrack_kv = track_kv.clone();
-        self.insert("tracks".into(), track_kv).await;
+        self.insert("tracks".into(), track_kv).await?;
         for (key, value) in &track.properties {
             subtrack_kv.insert(key.into(), Self::json_to_string(value));
         }
-        self.insert(track.event.clone(), subtrack_kv).await;
-        Ok(())
+        self.insert(track.event.clone(), subtrack_kv).await
     }
 }
 

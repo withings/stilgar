@@ -1,8 +1,6 @@
 pub mod blackhole;
 pub mod clickhouse;
 
-use crate::forwarder::SuspendTrigger;
-
 use crate::events::alias::Alias;
 use crate::events::group::Group;
 use crate::events::identify::Identify;
@@ -17,7 +15,6 @@ use crate::config;
 use std::sync::Arc;
 use std::fmt::Display;
 use thiserror::Error;
-use tokio::sync::mpsc;
 use async_trait::async_trait;
 
 /// Enum used by all destinations to report errors
@@ -49,7 +46,8 @@ pub type StorageResult = Result<(), StorageError>;
 /// The Destination trait, all destinations must implement this
 #[async_trait]
 pub trait Destination: Display {
-    async fn new(settings: &config::Settings, suspend_trigger: SuspendTrigger) -> Result<Arc<Self>, StorageError> where Self: Sized;
+    async fn new(settings: &config::Settings) -> Result<Arc<Self>, StorageError> where Self: Sized;
+    fn error_is_critical(&self, err: &StorageError) -> bool;
     async fn alias(&self, alias: &Alias) -> StorageResult;
     async fn group(&self, group: &Group) -> StorageResult;
     async fn identify(&self, identify: &Identify) -> StorageResult;
@@ -62,12 +60,12 @@ pub trait Destination: Display {
 pub type Destinations = Vec<Arc<dyn Destination>>;
 
 /// Provides an array of destination structs based on the configuration file
-pub async fn init_destinations(destination_configs: &Vec<config::Destination>, suspend_tx: mpsc::Sender<()>) -> Result<Destinations, StorageError> {
+pub async fn init_destinations(destination_configs: &Vec<config::Destination>) -> Result<Destinations, StorageError> {
     let mut destinations: Vec<Arc<dyn Destination>> = vec!();
     for destination_config in destination_configs.iter() {
         match destination_config.destination_type.as_str() {
-            "blackhole" => destinations.push(Blackhole::new(&destination_config.settings, suspend_tx.clone()).await?),
-            "clickhouse" => destinations.push(Clickhouse::new(&destination_config.settings, suspend_tx.clone()).await?),
+            "blackhole" => destinations.push(Blackhole::new(&destination_config.settings).await?),
+            "clickhouse" => destinations.push(Clickhouse::new(&destination_config.settings).await?),
             other => return Err(StorageError::Initialisation(format!("unknown destination type: {}", other)))
         }
     }

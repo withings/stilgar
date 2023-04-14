@@ -62,38 +62,38 @@ Stilgar exposes 2 endpoints for monitoring:
     ---------------                                |
                                                    |
                                   +-----------+    |
-                                  | forwarder <----+   wait for
-                                  +-----+---^-+        backoff
-                                        |   |          request +-----------------+
-                                        |   +------------------+ backoff channel |
-                                        |                      +--------^--------+
-                                        |                               |
-           +----------------------------+------------+                  |
-           |                                         |                  |
-           | event                           backoff |                  |
-           | is a                           recently |                  |
-           | batch                         refreshed |                  |
-           |                                         |                  |
-           |                                         |                  |
-     +-----v------+     +--------------+     +-------v-----+            |
-     | split into |     |   forward    |     |    apply    |            |
-     | individual +----->      to      <-----+ exponential |            |
-     | events     |     | destinations | ... |   backoff   |            |
-     +------------+     +------+-------+     +-------------+            |
-                               |                                        |
-                               |                                        |
-                               |                                        |
-     Destination logic         |                              on error, |
-     -----------------         +-------------------+            notify  |
-                               |                   |           backoff  |
-                               v                   v           channel  |
-                        +- Blackhole -+  +--- Clickhouse --+            |
-                        |             |  |                 |            |
-                        | +---------+ |  | +-------------+ |            |
-                        | | discard | |  | | write event | |            |
-                        | |  event  | |  | |  to cache   | |            |
-                        | +----+----+ |  | +-------+-----+ |            |
-                        |      |      |  |     ... |       +------------+
+                                  | forwarder <----+
+                                  +-----+-----+
+                                        |
+                                        |
+                                        |
+                                        |
+           +----------------------------+------------+
+           |                                         |
+           | event                    error recently |
+           | is a                        returned by |
+           | batch                     a destination |
+           |                                         |
+           |                                         |
+     +-----v------+     +--------------+     +-------v-----+
+     | split into |     |   forward    |     |    apply    |
+     | individual +----->      to      <-----+ exponential |
+     | events     |     | destinations |     |   backoff   |
+     +------------+     +--------------+     +-------------+
+                               ^
+                               |
+                               |
+     Destination logic         |
+     -----------------         +-------------------+
+                               |                   |
+                               v                   v
+                        +- Blackhole -+  +--- Clickhouse --+
+                        |             |  |                 |
+                        | +---------+ |  | +-------------+ |
+                        | | discard | |  | | write event | |
+                        | |  event  | |  | |  to cache   | |
+                        | +----+----+ |  | +-------+-----+ |
+                        |      |      |  |     ... |       |
                         +------+------+  | +-------v-----+ |
                                |         | | flush cache | |
                                v         | |  to server  | |

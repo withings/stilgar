@@ -218,16 +218,6 @@ impl BeanstalkProxy {
         }
     }
 
-    /// Releases a job back into the queue
-    pub async fn release(&self, id: u64) -> BeanstalkResult {
-        log::debug!("releasing job ID {}", id);
-        let released = self.send_command(format!("release {} 0 0\r\n", id)).await?;
-        match released.starts_with("RELEASED") {
-            true => Ok(released),
-            false => Err(BeanstalkError::UnexpectedResponse("release".to_string(), released))
-        }
-    }
-
     /// Get server stats
     pub async fn stats(&self) -> Result<Statistics, BeanstalkError> {
         let command_response = self.send_command(String::from("stats\r\n")).await?;

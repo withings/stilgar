@@ -6,7 +6,6 @@ use crate::destinations::Destinations;
 use std::time::{Instant, Duration};
 use serde_json;
 use tokio;
-use tokio::sync::mpsc;
 use log;
 
 /// Sleep duration after a reserve failure
@@ -16,30 +15,17 @@ const DEFAULT_BACKOFF: u64 = 2;
 /// Duration (seconds) without a backoff request after which the backoff is reset to its default
 const BACKOFF_RESET_AFTER: u64 = 30;
 
-/// Sending end of a suspend channel, used by destinations to pause the forwarder
-pub type SuspendTrigger = mpsc::Sender<()>;
-
 /// The events forwarder along with its beanstalk and suspend channel
 pub struct Forwarder {
     beanstalk: BeanstalkProxy,
-    suspend_rx: mpsc::Receiver<()>,
-    suspend_tx: SuspendTrigger,
 }
 
 impl Forwarder {
     /// Creates a new forwarder
     pub fn new(beanstalk: BeanstalkProxy) -> Self {
-        let (suspend_tx, suspend_rx) = mpsc::channel::<()>(32);
         Self {
             beanstalk,
-            suspend_rx,
-            suspend_tx,
         }
-    }
-
-    /// Provides a clone of the suspend channel sender
-    pub fn suspend_channel(&self) -> SuspendTrigger {
-        self.suspend_tx.clone()
     }
 
     /// Actually runs the channel for a given set of destinations
@@ -58,22 +44,6 @@ impl Forwarder {
                     continue;
                 }
             };
-
-            /* Delay job processing if we've been asked to by a destination */
-            if let Ok(_) = self.suspend_rx.try_recv() {
-                log::warn!("forwarder suspend request received, will release current job and back off for {} seconds", exponential_backoff);
-                self.beanstalk.release(job.id).await.ok();
-                tokio::time::sleep(tokio::time::Duration::from_secs(exponential_backoff)).await;
-                last_backoff = Instant::now();
-                exponential_backoff *= 2;
-                continue;
-            }
-
-            /* Reset the backoff if we've been going successfully for a bit */
-            if exponential_backoff > DEFAULT_BACKOFF && last_backoff.elapsed() > Duration::from_secs(BACKOFF_RESET_AFTER) {
-                log::info!("operations back to normal, resetting forwarder backoff");
-                exponential_backoff = DEFAULT_BACKOFF;
-            }
 
             /* Immediately delete the job, whatever happens next */
             log::debug!("new processor job: {}", job.payload);
@@ -107,6 +77,7 @@ impl Forwarder {
             }
 
             /* Forward the event to all known destinations using Destination methods */
+            let mut critical_destination_error = false;
             for destination in destinations.iter() {
                 let storage_result = match &event_or_batch {
                     EventOrBatch::Event(event) => match event {
@@ -120,10 +91,28 @@ impl Forwarder {
                     _ => panic!("a batch event has made it through unsplit, this should not happen"),
                 };
 
-                log::debug!("forwarded to destination: {}", destination);
                 if let Err(e) = storage_result {
-                    log::error!("destination failure on {}: {}", destination, e);
+                    if destination.error_is_critical(&e) {
+                        /* Delay further job processing on destination errors */
+                        log::error!("critical destination error: {}: {}", destination, e);
+                        critical_destination_error = true;
+                    } else {
+                        log::warn!("non-critical destination error: {}: {}", destination, e);
+                    }
+                } else {
+                    log::debug!("forwarded to destination: {}", destination);
                 }
+            }
+
+            /* Back off in case of error, stop when normal service resumes */
+            if critical_destination_error {
+                log::warn!("at least 1 destination reported an error recently, backing off for {} seconds", exponential_backoff);
+                tokio::time::sleep(tokio::time::Duration::from_secs(exponential_backoff)).await;
+                last_backoff = Instant::now();
+                exponential_backoff *= 2;
+            } else if exponential_backoff > DEFAULT_BACKOFF && last_backoff.elapsed().as_secs() > BACKOFF_RESET_AFTER {
+                log::info!("operations back to normal, resetting forwarder backoff");
+                exponential_backoff = DEFAULT_BACKOFF;
             }
         }
     }

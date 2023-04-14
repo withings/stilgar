@@ -9,45 +9,6 @@ use tokio::sync::{mpsc, oneshot};
 use async_stream::stream;
 use serde_json;
 
-/// Clickhouse error codes which can trigger a forwarder suspend
-const SUSPEND_ERROR_CODES: [i64; 35] = [
-    3,    /* UNEXPECTED_END_OF_FILE */
-    74,   /* CANNOT_READ_FROM_FILE_DESCRIPTOR */
-    75,   /* CANNOT_WRITE_TO_FILE_DESCRIPTOR */
-    76,   /* CANNOT_WRITE_TO_FILE_DESCRIPTOR */
-    77,   /* CANNOT_CLOSE_FILE */
-    87,   /* CANNOT_SEEK_THROUGH_FILE */
-    88,   /* CANNOT_TRUNCATE_FILE */
-    95,   /* CANNOT_READ_FROM_SOCKET */
-    96,   /* CANNOT_WRITE_TO_SOCKET */
-    159,  /* TIMEOUT_EXCEEDED */
-    160,  /* TOO_SLOW */
-    164,  /* READONLY */
-    172,  /* CANNOT_CREATE_DIRECTORY */
-    173,  /* CANNOT_ALLOCATE_MEMORY */
-    198,  /* DNS_ERROR */
-    201,  /* QUOTA_EXCEEDED */
-    202,  /* TOO_MANY_SIMULTANEOUS_QUERIES */
-    203,  /* NO_FREE_CONNECTION */
-    204,  /* CANNOT_FSYNC */
-    209,  /* SOCKET_TIMEOUT */
-    210,  /* NETWORK_ERROR */
-    236,  /* ABORTED */
-    241,  /* MEMORY_LIMIT_EXCEEDED */
-    242,  /* TABLE_IS_READ_ONLY */
-    243,  /* NOT_ENOUGH_SPACE */
-    274,  /* AIO_READ_ERROR */
-    275,  /* AIO_WRITE_ERROR */
-    290,  /* LIMIT_EXCEEDED */
-    298,  /* CANNOT_PIPE */
-    299,  /* CANNOT_FORK */
-    301,  /* CANNOT_CREATE_CHILD_PROCESS */
-    303,  /* CANNOT_SELECT */
-    335,  /* BARRIER_TIMEOUT */
-    373,  /* SESSION_IS_LOCKED */
-    1002, /* UNKNOWN_ERROR */
-];
-
 /// Network timeout when communicating with Clickhouse
 const NETWORK_TIMEOUT: u64 = 5;
 
@@ -240,22 +201,6 @@ impl Clickhouse {
         }
     }
 
-    // Handles a generic Clickhouse error, possibly asking the forwarder for a break
-    async fn handle_error_for_suspend(&self, err: &StorageError) {
-        let suspend = match err {
-            StorageError::Connectivity(_) => true,
-            StorageError::QueryFailure(code, _, _) => SUSPEND_ERROR_CODES.contains(code),
-            _ => false,
-        };
-
-        if suspend {
-            log::error!("clickhouse error: {}", err.to_string());
-            self.suspend_trigger.send(()).await.ok();
-        } else {
-            log::warn!("clickhouse: {}", err.to_string());
-        }
-    }
-
     /// Query task: receives query messages and processes them
     pub async fn run_query_channel(&self, url: String, mut rx: mpsc::Receiver<GenericQuery>) {
         log::debug!("running clickhouse channel for {}", self.database);
@@ -285,7 +230,6 @@ impl Clickhouse {
             };
 
             if let Some(err) = error {
-                self.handle_error_for_suspend(&err).await;
                 if let StorageError::Connectivity(_) = err {
                     match Self::get_client(url.clone()).await {
                         Ok(new_client) => {

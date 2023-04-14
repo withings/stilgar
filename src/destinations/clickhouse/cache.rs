@@ -32,6 +32,7 @@ pub type Row = HashMap<String, Option<String>>;
 pub struct CacheInsert {
     pub table: String,
     pub row: Row,
+    pub return_tx: oneshot::Sender<StorageResult>,
 }
 
 /// An insert cache entry
@@ -50,12 +51,13 @@ type InsertCacheMap = HashMap<String, InsertEntry, BuildHasherDefault<XxHash64>>
 
 impl Clickhouse {
     /// Inserts a row into the cache, sending it over the mpsc channel to the cache task
-    pub async fn insert(&self, table: String, row: Row) -> () {
-        self.cache.send(CacheInsert { table, row }).await
-            .expect("failed to push row to cache channel");
+    pub async fn insert(&self, table: String, row: Row) -> StorageResult {
+        let (return_tx, return_rx) = oneshot::channel::<StorageResult>();
+        self.cache.send(CacheInsert { table, row, return_tx }).await.expect("failed to push row to cache channel");
+        return_rx.await.expect("failed to recover insert result from cache channel")
     }
 
-    /// Registersto write a cache entry to Clickhouse
+    /// Registers a write a cache entry to Clickhouse
     async fn try_write(&self, cache_entry: &InsertEntry) -> StorageResult {
         /* Prepare the actual query and a channel to send rows */
         let columns = cache_entry.columns.join(", ");
@@ -94,8 +96,8 @@ impl Clickhouse {
             let insert_future = rx.recv();
             let timeout_future = tokio::time::sleep(self.cache_idle_timeout);
 
-            let flush_now = tokio::select! {
-                _ = timeout_future => !insert_cache.is_empty(), /* you timeout, you got data = you flush */
+            let (flush_now, return_tx) = tokio::select! {
+                _ = timeout_future => (!insert_cache.is_empty(), None), /* you timeout, you got data = you flush */
                 insert = insert_future => {
                     let insert = insert.expect("failed to retrieve an insert on the cache channel");
 
@@ -113,24 +115,31 @@ impl Clickhouse {
                     }});
                     entry.rows.push(values); /* add the row to cache */
                     cache_size += 1;
-                    cache_size >= self.cache_threshold /* you fill the cache = you flush */
+                    (cache_size >= self.cache_threshold, Some(insert.return_tx)) /* you fill the cache = you flush */
                 }
             };
 
-            if !flush_now {
-                continue;
-            }
+            if flush_now {
+                log::debug!("cache size threshold reached or idle timeout exceeded, will write to Clickhouse");
+                let flush_result = self.flush_insert_cache(&insert_cache).await;
+                insert_cache.clear();
+                cache_size = 0;
+                log::debug!("in-memory cache cleared");
 
-            log::debug!("cache size threshold reached or idle timeout exceeded, will write to Clickhouse");
-            self.flush_insert_cache(&insert_cache).await;
-            insert_cache.clear();
-            cache_size = 0;
-            log::debug!("in-memory cache cleared");
+                if let Some(return_tx) = return_tx {
+                    return_tx.send(flush_result).expect("failed to send flush reply on the cache insert return channel");
+                }
+            } else {
+                if let Some(return_tx) = return_tx {
+                    return_tx.send(Ok(())).expect("failed to send dummy reply on the cache insert return channel");
+                }
+            }
         }
     }
 
     /// Flushes the insert cache to Clickhouse once the threshold has been reached
-    async fn flush_insert_cache(&self, insert_cache: &InsertCacheMap) {
+    async fn flush_insert_cache(&self, insert_cache: &InsertCacheMap) -> StorageResult {
+        let mut error: Option<StorageError> = None;
         for cache_entry in insert_cache.values() {
             /* Try to write the cache entry to Clickhouse */
             let mut write_result = self.try_write(cache_entry).await;
@@ -143,11 +152,13 @@ impl Clickhouse {
                     Ok(ddl) => {
                         if let Err(e) = self.nio(ddl).await {
                             log::error!("failed to create table {}: {}", cache_entry.table, e.to_string());
+                            error = Some(e);
                             continue;
                         }
                     },
                     Err(e) => {
                         log::error!("failed to generate DDL for table {}: {}", cache_entry.table, e.to_string());
+                        error = Some(e);
                         continue;
                     }
                 }
@@ -155,26 +166,37 @@ impl Clickhouse {
                 write_result = self.try_write(cache_entry).await;
             }
 
-            if let Err(StorageError::QueryFailure(ERR_NO_SUCH_COLUMN_IN_TABLE, _, _)) = &write_result {
-                /* At least one column is missing, add it and try again
-                 * This is very likely to happen after CREATE TABLE above */
-                /* Infer types for all columns in this entry */
-                let entry_columns = cache_entry.columns.iter().enumerate()
-                    .map(|(i, c)| (c.clone(), Self::infer_vec_type(cache_entry.rows.iter().map(|r| &r[i]))))
-                    .collect::<HashMap<String, String>>();
+            match write_result {
+                Ok(_) => {},
+                Err(StorageError::QueryFailure(ERR_NO_SUCH_COLUMN_IN_TABLE, _, _)) => {
+                    /* At least one column is missing, add it and try again
+                     * This is very likely to happen after CREATE TABLE above */
+                    /* Infer types for all columns in this entry */
+                    let entry_columns = cache_entry.columns.iter().enumerate()
+                        .map(|(i, c)| (c.clone(), Self::infer_vec_type(cache_entry.rows.iter().map(|r| &r[i]))))
+                        .collect::<HashMap<String, String>>();
 
-                /* Extend the table if necessary */
-                if let Err(e) = self.extend_existing_table(&cache_entry.table, entry_columns).await {
-                    log::error!("failed to extend table {}: {}", cache_entry.table, e.to_string());
-                    continue;
-                }
+                    /* Extend the table if necessary */
+                    if let Err(e) = self.extend_existing_table(&cache_entry.table, entry_columns).await {
+                        log::error!("failed to extend table {}: {}", cache_entry.table, e.to_string());
+                        error = Some(e);
+                        continue;
+                    }
 
-                /* Try storing again */
-                if let Err(e) = self.try_write(cache_entry).await {
-                    log::error!("failed to insert rows after table alterations on {}, will skip block: {}",
-                                cache_entry.table, e.to_string());
-                }
+                    /* Try storing again */
+                    if let Err(e) = self.try_write(cache_entry).await {
+                        log::error!("failed to insert rows after table alterations on {}, will skip block: {}",
+                                    cache_entry.table, e.to_string());
+                        error = Some(e);
+                    }
+                },
+                Err(e) => { error = Some(e); },
             }
+        }
+
+        match error {
+            Some(e) => Err(e),
+            None => Ok(())
         }
     }
 }

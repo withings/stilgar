@@ -62,11 +62,8 @@ async fn main() {
         }
     };
 
-    /* Instiantiate the forwarder */
-    let mut forwarder = Forwarder::new(bstk_forwarder.proxy());
-
     /* Instantiate all Destination structs as per the configuration */
-    let destinations = match init_destinations(&configuration.destinations, forwarder.suspend_channel()).await {
+    let destinations = match init_destinations(&configuration.destinations).await {
         Ok(d) => d,
         Err(e) => {
             log::error!("destination error: {}", e);
@@ -121,6 +118,9 @@ async fn main() {
             .with(warp::log::custom(middleware::request_logger))
             .recover(middleware::handle_rejection)
     ).run(SocketAddr::new(configuration.server.ip, configuration.server.port));
+
+    /* Instiantiate the forwarder */
+    let mut forwarder = Forwarder::new(bstk_forwarder.proxy());
 
     /* Start everything */
     tokio::join!(
