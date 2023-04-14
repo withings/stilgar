@@ -45,7 +45,7 @@ Stilgar exposes 2 endpoints for monitoring:
   the beanstalkd queue. This route supports authentication, using
   admin credentials (not the write keys).
 
-# Global event flow diagram
+## Global event flow diagram
 
     Web services logic
     ------------------
@@ -164,12 +164,10 @@ Clickhouse destination become unavailable due to a network issue, it
 would be wise to let events accumulate in the beanstalkd queue rather
 than the in-memory destination cache.
 
-To this end, every destination known to Stilgar is given a special
-*switch* at initialisation through which it can interact with the
-forwarder. Sending a message over that channel will notify the
-forwarder that something has gone wrong. When that happens, it will
-begin applying an exponential backoff on the dequeuing process, until
-enough time passes without a notification.
+To this end, destinations can return error statuses to the forwarder
+when storing events. When it receives those, it will update its
+exponential backoff duration and sleep before reserving a new job from
+beanstalkd.
 
 This will progressively slow down the forwarding process and allow
 events to stack up in the beanstalkd queue. Configuring your queue to
