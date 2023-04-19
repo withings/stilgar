@@ -4,6 +4,7 @@ use crate::beanstalk::{BeanstalkProxy, BeanstalkError};
 use crate::destinations::Destinations;
 
 use std::time::{Instant, Duration};
+use serde::{Deserialize, Serialize};
 use serde_json;
 use tokio;
 use log;
@@ -16,6 +17,13 @@ const DEFAULT_BACKOFF: u64 = 2;
 const MAX_BACKOFF: u64 = 300;
 /// Duration (seconds) without a backoff request after which the backoff is reset to its default
 const BACKOFF_RESET_AFTER: u64 = 30;
+
+/// An event associated to a write key, for the forwarder
+#[derive(Serialize, Deserialize)]
+pub struct ForwarderEnvelope {
+    pub write_key: String,
+    pub event_or_batch: EventOrBatch,
+}
 
 /// The events forwarder along with its beanstalk and suspend channel
 pub struct Forwarder {
@@ -53,8 +61,8 @@ impl Forwarder {
                 log::error!("failed to delete job, will process anyway: {}", e);
             }
 
-            /* Make sure it's a proper event */
-            let event_or_batch: EventOrBatch = match serde_json::from_str(&job.payload) {
+            /* Make sure it's a proper event with its write key */
+            let envelope: ForwarderEnvelope = match serde_json::from_str(&job.payload) {
                 Ok(ev) => ev,
                 Err(err) => {
                     log::warn!("could not re-parse job: {}", err);
@@ -63,11 +71,16 @@ impl Forwarder {
             };
 
             /* If it's a batch event, split it and reschedule each subevent individually (now) */
-            if let EventOrBatch::Batch(mut batch_event) = event_or_batch {
+            if let EventOrBatch::Batch(mut batch_event) = envelope.event_or_batch {
                 for subevent in batch_event.batch.iter_mut() {
                     set_common_attribute!(subevent, sent_at, batch_event.sent_at);
-                    match serde_json::to_string(&subevent) {
-                        Ok(subevent_str) => if let Err(e) = self.beanstalk.put(subevent_str).await {
+                    let new_envelope = ForwarderEnvelope {
+                        write_key: envelope.write_key.clone(),
+                        event_or_batch: EventOrBatch::Event(subevent.clone()),
+                    };
+
+                    match serde_json::to_string(&new_envelope) {
+                        Ok(envelope_str) => if let Err(e) = self.beanstalk.put(envelope_str).await {
                             log::warn!("failed to submit subevent from batch: {}", e);
                         },
                         Err(e) => {
@@ -81,7 +94,11 @@ impl Forwarder {
             /* Forward the event to all known destinations using Destination methods */
             let mut critical_destination_error = false;
             for destination in destinations.iter() {
-                let storage_result = match &event_or_batch {
+                if !destination.matches_write_key(&envelope.write_key) {
+                    continue;
+                }
+
+                let storage_result = match &envelope.event_or_batch {
                     EventOrBatch::Event(event) => match event {
                         AnyEvent::Alias(alias) => destination.alias(alias).await,
                         AnyEvent::Group(group) => destination.group(group).await,

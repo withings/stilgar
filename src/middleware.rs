@@ -3,6 +3,7 @@ use warp::Filter;
 use warp::http::Method;
 use byte_unit::Byte as ByteSize;
 use base64::{Engine as _, engine::general_purpose};
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::io::prelude::*;
 use std::net::SocketAddr;
@@ -103,22 +104,19 @@ pub fn validate_basic_auth(authorization_header: &str, expected_username: &str, 
         .unwrap_or(false)
 }
 
-pub fn write_key_auth_filter(write_keys_arc: Arc<Option<Vec<String>>>) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
+pub fn write_key(write_keys_arc: Arc<HashSet<String>>) -> impl Filter<Extract = (String,), Error = warp::Rejection> + Clone {
     warp::header::optional("authorization").and_then(move |authorization: Option<String>| {
         let write_keys_arc_clone = write_keys_arc.clone();
         async move {
-            match write_keys_arc_clone.as_ref() {
-                Some(expected) => match authorization {
-                    Some(submitted) => match expected.iter().any(|k| validate_basic_auth(&submitted, k, "")) {
-                        true => Ok(()),
-                        false => Err(warp::reject::custom(Forbidden))
-                    },
-                    None => Err(warp::reject::custom(Unauthorized))
+            match authorization {
+                Some(submitted) => match write_keys_arc_clone.iter().find(|k| validate_basic_auth(&submitted, k, "")) {
+                    Some(k) => Ok(k.clone()),
+                    None => Err(warp::reject::custom(Forbidden))
                 },
-                None => Ok(())
+                None => Err(warp::reject::custom(Unauthorized))
             }
         }
-    }).untuple_one()
+    })
 }
 
 pub fn admin_auth_filter(admin_username: Arc<Option<String>>, admin_password: Arc<Option<String>>) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {

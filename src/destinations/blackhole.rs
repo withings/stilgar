@@ -9,10 +9,13 @@ use crate::config::Settings;
 
 use std::sync::Arc;
 use std::fmt::Display;
+use std::collections::HashSet;
 use async_trait::async_trait;
 
 /// Does nothing, needs nothing
-pub struct Blackhole {}
+pub struct Blackhole {
+    write_keys: HashSet<String>,
+}
 
 impl Display for Blackhole {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
@@ -23,8 +26,15 @@ impl Display for Blackhole {
 #[async_trait]
 impl Destination for Blackhole {
     /// Returns pretty much nothing
-    async fn new(_settings: &Settings) -> Result<Arc<Self>, StorageError> {
-        Ok(Arc::new(Blackhole{}))
+    async fn new(write_keys: HashSet<String>, _settings: &Settings) -> Result<Arc<Self>, StorageError> {
+        Ok(Arc::new(Blackhole {
+            write_keys
+        }))
+    }
+
+    /// Matches in the hashset without further processing
+    fn matches_write_key(&self, subject_key: &String) -> bool {
+        self.write_keys.contains(subject_key)
     }
 
     /// Nothing is critical

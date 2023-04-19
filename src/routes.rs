@@ -1,8 +1,9 @@
 use crate::beanstalk::BeanstalkProxy;
+use crate::forwarder::ForwarderEnvelope;
 use crate::events::any::{AnyEvent, EventOrBatch, set_common_attribute};
 use crate::middleware;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use chrono::Utc;
 use serde_json;
@@ -28,6 +29,7 @@ fn overwrite_any_received_at(event_or_batch: &mut EventOrBatch) {
 /// Actual event route: adds the received_at field and tries to reserialise for beanstalkd
 pub async fn event_or_batch(beanstalk: BeanstalkProxy,
                             request_info: middleware::BasicRequestInfo,
+                            write_key: String,
                             payload: String) -> Result<impl warp::Reply, warp::Rejection> {
     let event_or_batch = serde_json::from_str::<EventOrBatch>(&payload);
     let mut event_or_batch = match event_or_batch {
@@ -46,7 +48,8 @@ pub async fn event_or_batch(beanstalk: BeanstalkProxy,
 
     /* Re-serialise the job for beanstalkd */
     overwrite_any_received_at(&mut event_or_batch);
-    let job_payload = match serde_json::to_string(&event_or_batch) {
+    let envelope = ForwarderEnvelope { write_key, event_or_batch };
+    let job_payload = match serde_json::to_string(&envelope) {
         Ok(j) => j,
         Err(e) => {
             log::debug!("failed to re-serialise event: {}", e);
@@ -68,13 +71,10 @@ pub async fn event_or_batch(beanstalk: BeanstalkProxy,
 
 
 /// Control plane mock route
-pub async fn source_config(expected_write_key: Arc<Option<Vec<String>>>, query_params: HashMap<String, String>) -> Result<impl warp::Reply, warp::Rejection> {
-    let enabled = expected_write_key.as_ref().clone()
-        .map(|expected| query_params.get("writeKey")
-             .as_ref()
-             .map(|submitted| expected.iter().any(|k| k == *submitted))
-             .unwrap_or(false)) /* key expected but none submitted: no! */
-        .unwrap_or(true); /* no key expected: ok! */
+pub async fn source_config(expected_write_keys: Arc<HashSet<String>>, query_params: HashMap<String, String>) -> Result<impl warp::Reply, warp::Rejection> {
+    let enabled = query_params.get("writeKey").as_ref()
+        .map(|submitted| expected_write_keys.iter().any(|k| k == *submitted))
+        .unwrap_or(false);
 
     let response = serde_json::json!({
         "source": {

@@ -14,6 +14,7 @@ use crate::config;
 
 use std::sync::Arc;
 use std::fmt::Display;
+use std::collections::HashSet;
 use thiserror::Error;
 use async_trait::async_trait;
 
@@ -46,8 +47,9 @@ pub type StorageResult = Result<(), StorageError>;
 /// The Destination trait, all destinations must implement this
 #[async_trait]
 pub trait Destination: Display {
-    async fn new(settings: &config::Settings) -> Result<Arc<Self>, StorageError> where Self: Sized;
+    async fn new(write_keys: HashSet<String>, settings: &config::Settings) -> Result<Arc<Self>, StorageError> where Self: Sized;
     fn error_is_critical(&self, err: &StorageError) -> bool;
+    fn matches_write_key(&self, subject_key: &String) -> bool;
     async fn alias(&self, alias: &Alias) -> StorageResult;
     async fn group(&self, group: &Group) -> StorageResult;
     async fn identify(&self, identify: &Identify) -> StorageResult;
@@ -63,9 +65,11 @@ pub type Destinations = Vec<Arc<dyn Destination>>;
 pub async fn init_destinations(destination_configs: &Vec<config::Destination>) -> Result<Destinations, StorageError> {
     let mut destinations: Vec<Arc<dyn Destination>> = vec!();
     for destination_config in destination_configs.iter() {
+        let write_keys = destination_config.write_keys.clone();
+        let settings = &destination_config.settings;
         match destination_config.destination_type.as_str() {
-            "blackhole" => destinations.push(Blackhole::new(&destination_config.settings).await?),
-            "clickhouse" => destinations.push(Clickhouse::new(&destination_config.settings).await?),
+            "blackhole" => destinations.push(Blackhole::new(write_keys, settings).await?),
+            "clickhouse" => destinations.push(Clickhouse::new(write_keys, settings).await?),
             other => return Err(StorageError::Initialisation(format!("unknown destination type: {}", other)))
         }
     }

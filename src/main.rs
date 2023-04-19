@@ -15,8 +15,9 @@ use log;
 use warp;
 use simple_logger::SimpleLogger;
 use warp::Filter;
+use std::sync::Arc;
 use std::net::SocketAddr;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Stilgar's entry point: welcome!
 #[tokio::main(flavor = "multi_thread")]
@@ -71,6 +72,13 @@ async fn main() {
         }
     };
 
+    /* Gather up the write keys for authentication filters */
+    let all_write_keys: Arc<HashSet<String>> = Arc::new(
+        configuration.destinations.iter()
+            .map(|d| d.write_keys.iter()).flatten()
+            .map(|s| s.clone()).collect()
+    );
+
     /* Routes used to catch events */
     let any_event_route = warp::post().and(
         warp::path!("v1" / "batch")
@@ -81,16 +89,16 @@ async fn main() {
             .or(warp::path!("v1" / "screen")).unify()
             .or(warp::path!("v1" / "track")).unify())
         .and(middleware::content_length_filter(configuration.server.payload_size_limit))
-        .and(middleware::write_key_auth_filter(configuration.server.write_keys.clone()))
         .and(with_beanstalk(bstk_web.proxy()))
         .and(middleware::basic_request_info())
+        .and(middleware::write_key(all_write_keys.clone()))
         .and(middleware::compressible_body())
         .and_then(routes::event_or_batch);
 
     /* Source config route to mock the Rudderstack control plane */
     let source_config_route = warp::get()
         .and(warp::path!("sourceConfig"))
-        .map(move || configuration.server.write_keys.clone())
+        .map(move || all_write_keys.clone())
         .and(warp::query::<HashMap<String, String>>())
         .and_then(routes::source_config);
 

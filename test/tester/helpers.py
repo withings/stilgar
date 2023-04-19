@@ -8,7 +8,7 @@ import time
 
 from tester.context import get_service_url
 
-WRITE_KEY = "not-actually-secret"
+WRITE_KEY = "clickhouse-write-key"
 WRITE_KEY_B64 = b64encode(("%s:" % WRITE_KEY).encode('utf-8')).decode('ascii')
 NOT_WRITE_KEY = "this-is-not-the-write-key"
 NOT_WRITE_KEY_B64 = b64encode(("%s:" % NOT_WRITE_KEY).encode('utf-8')).decode('ascii')

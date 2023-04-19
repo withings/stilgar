@@ -5,7 +5,7 @@ use serde_json;
 use std::collections::HashMap;
 
 /// A screen event, as sent to /v1/screen
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Screen {
     #[serde(flatten)]

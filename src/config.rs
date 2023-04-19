@@ -2,7 +2,7 @@ use serde::{Serialize, Deserialize};
 use std::net::IpAddr;
 use std::fs::File;
 use std::sync::Arc;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use directories::ProjectDirs;
 use byte_unit::Byte as ByteSize;
@@ -35,8 +35,6 @@ pub struct Server {
     #[serde(default = "defaults::server_port")]
     pub port: u16,
     /// The write key (can be left empty)
-    #[serde(default)]
-    pub write_keys: Arc<Option<Vec<String>>>,
     #[serde(default = "defaults::server_payload_size_limit")]
     pub payload_size_limit: ByteSize,
     /// A list of allowed origins (CORS)
@@ -54,7 +52,6 @@ impl Default for Server {
         return Self {
             ip: defaults::server_ip(),
             port: defaults::server_port(),
-            write_keys: Arc::new(None),
             payload_size_limit: defaults::server_payload_size_limit(),
             origins: vec!(),
             admin_username: Arc::new(None),
@@ -107,6 +104,8 @@ pub struct Destination {
     /// The destination type
     #[serde(rename = "type")]
     pub destination_type: String,
+    /// The write keys for this destination
+    pub write_keys: HashSet<String>,
     /// Some key-value settings specific to this destination
     #[serde(flatten)]
     pub settings: Settings,

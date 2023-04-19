@@ -15,6 +15,7 @@ use crate::config::Settings;
 use std::sync::Arc;
 use std::fmt::Display;
 use std::time::Duration;
+use std::collections::HashSet;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use regex::Regex;
@@ -62,6 +63,7 @@ const SUSPEND_ERROR_CODES: [i64; 35] = [
 
 /// Clickhouse destination
 pub struct Clickhouse {
+    write_keys: HashSet<String>,
     query: mpsc::Sender<primitives::GenericQuery>,
     cache: mpsc::Sender<cache::CacheInsert>,
     database: String,
@@ -78,7 +80,7 @@ pub struct Clickhouse {
 #[async_trait]
 impl Destination for Clickhouse {
     /// Create a Clickhouse destination and connects to the database
-    async fn new(settings: &Settings) -> Result<Arc<Self>, StorageError> {
+    async fn new(write_keys: HashSet<String>, settings: &Settings) -> Result<Arc<Self>, StorageError> {
         let host = settings
             .get("host").ok_or(StorageError::Initialisation("missing host parameter".to_string()))?
             .as_str().ok_or(StorageError::Initialisation("host parameter should be a string".to_string()))?;
@@ -122,6 +124,7 @@ impl Destination for Clickhouse {
         let (query_tx, query_rx) = mpsc::channel(32); // TODO 32?
         let (cache_tx, cache_rx) = mpsc::channel(32); // TODO 32?
         let clickhouse = Self {
+            write_keys,
             query: query_tx,
             cache: cache_tx,
             username: username.to_string(),
@@ -160,6 +163,11 @@ impl Destination for Clickhouse {
             StorageError::QueryFailure(code, _, _) => SUSPEND_ERROR_CODES.contains(code),
             _ => false,
         }
+    }
+
+    /// Matches in the hashset without further processing
+    fn matches_write_key(&self, subject_key: &String) -> bool {
+        self.write_keys.contains(subject_key)
     }
 
     /// Sends an alias event to cache

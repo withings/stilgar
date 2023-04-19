@@ -24,7 +24,7 @@ macro_rules! set_common_attribute {
 pub(crate) use set_common_attribute;
 
 /// Convenience enum: can accept any event
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum AnyEvent {
     #[serde(rename = "alias")]

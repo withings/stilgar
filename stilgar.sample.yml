@@ -2,8 +2,6 @@
 server:
   ip: 0.0.0.0  # the IP to bind to
   port: 8080  # the port to listen on
-  write_keys:  # all accepted write keys
-    - not-actually-secret
   payload_size_limit: 4MiB  # payload size limit on POST event routes
   origins:  # the list of allowed origins (CORS)
     - https://www.example.com
@@ -20,8 +18,10 @@ forwarder:
 
 # configures the destinations
 destinations:
-  - type: blackhole  # logs and drops all events
-  - type: clickhouse  # send to clickhouse
+
+  - type: clickhouse  # sends to clickhouse
+    write_keys:  # write keys used to target this destination
+      - clickhouse-write-key
     host: clickhouse-hostname  # hostname to Clickhouse
     user: myuser  # user with access to the DB
     password: mypassword  # password
@@ -30,3 +30,7 @@ destinations:
     cache_idle_timeout: 1m  # force a cache flush after that amount of time spent waiting for new events
     max_table_expansion: 10  # maximum number of columns which can be added at a time
     max_table_width: 100  # maximum number of columns in a table (no expansion beyond that)
+
+  - type: blackhole  # logs and drops all events
+    write_keys:
+      - blackhole-write-key

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde_json;
 
 /// A page event, as sent to /v1/page
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
     #[serde(flatten)]

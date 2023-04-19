@@ -8,7 +8,7 @@ use serde_json;
 use std::collections::HashMap;
 
 /// Fields common to all events
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CommonFields {
     pub anonymous_id: String,
