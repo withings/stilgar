@@ -12,6 +12,8 @@ use log;
 const RESERVE_FAILURE_WAIT_TIME: u64 = 10;
 /// First backoff duration in seconds (increases exponentially)
 const DEFAULT_BACKOFF: u64 = 2;
+/// Maximum backoff duration in seconds
+const MAX_BACKOFF: u64 = 300;
 /// Duration (seconds) without a backoff request after which the backoff is reset to its default
 const BACKOFF_RESET_AFTER: u64 = 30;
 
@@ -109,7 +111,7 @@ impl Forwarder {
                 log::warn!("at least 1 destination reported an error recently, backing off for {} seconds", exponential_backoff);
                 tokio::time::sleep(tokio::time::Duration::from_secs(exponential_backoff)).await;
                 last_backoff = Instant::now();
-                exponential_backoff *= 2;
+                exponential_backoff = std::cmp::min(MAX_BACKOFF, exponential_backoff * 2);
             } else if exponential_backoff > DEFAULT_BACKOFF && last_backoff.elapsed().as_secs() > BACKOFF_RESET_AFTER {
                 log::info!("operations back to normal, resetting forwarder backoff");
                 exponential_backoff = DEFAULT_BACKOFF;
