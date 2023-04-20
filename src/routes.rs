@@ -36,8 +36,10 @@ pub async fn event_or_batch(beanstalk: BeanstalkProxy,
         Ok(eb) => eb,
         Err(_) => {
             log::warn!(
-                "[rejected] [{}] malformed event from {} ({}) - {}",
+                "[rejected] [{}] {} {} malformed event from {} ({}) - {}",
                 request_info.request_id.unwrap_or("?".into()),
+                request_info.method,
+                request_info.path,
                 request_info.client_ip,
                 request_info.user_agent.unwrap_or("unknown user agent".into()),
                 payload

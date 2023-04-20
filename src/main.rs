@@ -122,8 +122,9 @@ async fn main() {
     let watch_proxy = bstk_forwarder.proxy();
     let webservice = warp::serve(
         any_event_route.or(source_config_route).or(status_route).or(ping_route)
+            .and(middleware::request_logger())
             .with(middleware::cors(&configuration.server.origins))
-            .with(warp::log::custom(middleware::request_logger))
+            .with(warp::log::custom(middleware::response_logger))
             .recover(middleware::handle_rejection)
     ).run(SocketAddr::new(configuration.server.ip, configuration.server.port));
 

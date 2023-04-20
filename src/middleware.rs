@@ -1,5 +1,6 @@
 use warp;
 use warp::Filter;
+use warp::filters::path::FullPath;
 use warp::http::Method;
 use byte_unit::Byte as ByteSize;
 use base64::{Engine as _, engine::general_purpose};
@@ -159,6 +160,9 @@ pub struct BasicRequestInfo {
     pub client_ip: String,
     pub user_agent: Option<String>,
     pub request_id: Option<String>,
+    pub method: String,
+    pub path: String,
+    pub length: String,
 }
 
 fn infer_client_ip(x_real_ip: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<SocketAddr>) -> String {
@@ -175,15 +179,34 @@ pub fn basic_request_info() -> impl Filter<Extract = (BasicRequestInfo,), Error 
         .and(warp::addr::remote())
         .and(warp::header::optional("user-agent"))
         .and(warp::header::optional("x-request-id"))
-        .map(|real_ip, forwarded_for, remote_addr, user_agent, request_id| BasicRequestInfo {
+        .and(warp::filters::method::method())
+        .and(warp::filters::path::full())
+        .and(warp::header::optional("content-length").map(|length: Option<String>| length.unwrap_or("0".into())))
+        .map(|real_ip, forwarded_for, remote_addr, user_agent, request_id, method: Method, path: FullPath, length: String| BasicRequestInfo {
             client_ip: infer_client_ip(real_ip, forwarded_for, remote_addr),
             user_agent,
             request_id,
+            method: String::from(method.as_str()),
+            path: String::from(path.as_str()),
+            length,
         })
 }
 
 
-pub fn request_logger(request_info: warp::log::Info) {
+pub fn request_logger() -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
+    warp::any().and(basic_request_info()).map(|info: BasicRequestInfo| {
+        log::info!(
+            "[request] [{}] {} {} from {} length {}",
+            info.request_id.unwrap_or("?".into()),
+            info.method,
+            info.path,
+            info.client_ip,
+            info.length,
+        );
+    }).untuple_one()
+}
+
+pub fn response_logger(request_info: warp::log::Info) {
     if request_info.path() == "/" {
         /* Do not log the ping route, as this could get very verbose with active monitoring */
         return;
@@ -196,16 +219,15 @@ pub fn request_logger(request_info: warp::log::Info) {
         headers.get("x-forwarded-for").map(|v| v.to_str().map(|s| String::from(s)).ok()).flatten(),
         request_info.remote_addr()
     );
-    let content_length = headers.get("content-length").map(|length| length.to_str().ok()).flatten().unwrap_or("0");
 
     log::info!(
-        "[request] [{}] {} {} {:?} from {} length {}",
+        "[response] [{}] {} {} from {} status {} duration {}ms",
         request_id,
         request_info.method(),
         request_info.path(),
-        request_info.version(),
         client_ip,
-        content_length,
+        request_info.status(),
+        request_info.elapsed().as_millis()
     );
 }
 
