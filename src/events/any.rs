@@ -24,7 +24,7 @@ macro_rules! set_common_attribute {
 pub(crate) use set_common_attribute;
 
 /// Convenience enum: can accept any event
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum AnyEvent {
     #[serde(rename = "alias")]
@@ -42,7 +42,7 @@ pub enum AnyEvent {
 }
 
 /// A batch event, as sent to /v1/batch
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Batch {
     pub batch: Vec<AnyEvent>,
@@ -51,7 +51,7 @@ pub struct Batch {
 }
 
 /// Convenience enum: accepts any event or a batch of events
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum EventOrBatch {
     Event(AnyEvent),

@@ -5,7 +5,7 @@ use serde_json;
 use std::collections::HashMap;
 
 /// An track event, as sent to /v1/track
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
     #[serde(flatten)]

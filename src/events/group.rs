@@ -7,7 +7,7 @@ use serde_json;
 use std::collections::HashMap;
 
 /// A group event, as sent to /v1/group
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Group {
     #[serde(flatten)]

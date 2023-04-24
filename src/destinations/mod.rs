@@ -14,7 +14,7 @@ use crate::config;
 
 use std::sync::Arc;
 use std::fmt::Display;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use async_trait::async_trait;
 
@@ -44,12 +44,19 @@ pub enum StorageError {
 /// Convenience type: storage result (reply given to the forwarder when storing)
 pub type StorageResult = Result<(), StorageError>;
 
+/// Convenience types: destination statistics hashmap
+pub type DestinationStatistics = HashMap<String, serde_json::Value>;
+
 /// The Destination trait, all destinations must implement this
 #[async_trait]
 pub trait Destination: Display {
     async fn new(write_keys: HashSet<String>, settings: &config::Settings) -> Result<Arc<Self>, StorageError> where Self: Sized;
+
     fn error_is_critical(&self, err: &StorageError) -> bool;
     fn matches_write_key(&self, subject_key: &String) -> bool;
+
+    async fn stats(&self) -> Result<DestinationStatistics, StorageError>;
+
     async fn alias(&self, alias: &Alias) -> StorageResult;
     async fn group(&self, group: &Group) -> StorageResult;
     async fn identify(&self, identify: &Identify) -> StorageResult;

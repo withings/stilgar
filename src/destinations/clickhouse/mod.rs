@@ -3,7 +3,7 @@ mod grpc;
 mod primitives;
 mod cache;
 
-use crate::destinations::{Destination, StorageResult, StorageError};
+use crate::destinations::{Destination, StorageResult, StorageError, DestinationStatistics};
 use crate::events::alias::Alias;
 use crate::events::group::Group;
 use crate::events::identify::Identify;
@@ -168,6 +168,25 @@ impl Destination for Clickhouse {
     /// Matches in the hashset without further processing
     fn matches_write_key(&self, subject_key: &String) -> bool {
         self.write_keys.contains(subject_key)
+    }
+
+    /// Provides statistics for /status
+    async fn stats(&self) -> Result<DestinationStatistics, StorageError> {
+        let metrics = self.get_basic_metrics().await;
+
+        Ok(match metrics {
+            Ok(m) => DestinationStatistics::from([
+                ("status".into(), "OK".into()),
+                ("active_queries".into(), serde_json::json!(m.active_queries)),
+                ("active_mutations".into(), serde_json::json!(m.active_mutations)),
+                ("delayed_inserts".into(), serde_json::json!(m.delayed_inserts)),
+                ("async_insert_active_threads".into(), serde_json::json!(m.async_insert_active_threads)),
+                ("pending_async_inserts".into(), serde_json::json!(m.pending_async_inserts)),
+            ]),
+            Err(e) => DestinationStatistics::from([
+                ("status".into(), serde_json::json!(e.to_string()))
+            ])
+        })
     }
 
     /// Sends an alias event to cache

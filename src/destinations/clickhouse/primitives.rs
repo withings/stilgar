@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use tokio;
 use tokio::sync::{mpsc, oneshot};
 use async_stream::stream;
-use serde_json;
 
 /// Network timeout when communicating with Clickhouse
 const NETWORK_TIMEOUT: u64 = 5;
@@ -53,6 +52,15 @@ pub enum GenericQuery {
     NIO(NonInteractiveQuery),
     Select(SelectQuery),
     Insert(InsertQuery),
+}
+
+/// Struct containing basic activity statistics from Clickhouse
+pub struct BasicMetrics {
+    pub active_queries: Option<u64>,
+    pub active_mutations: Option<u64>,
+    pub delayed_inserts: Option<u64>,
+    pub async_insert_active_threads: Option<u64>,
+    pub pending_async_inserts: Option<u64>,
 }
 
 impl Clickhouse {
@@ -299,6 +307,25 @@ impl Clickhouse {
         }
 
         Ok(engines[0][0].starts_with("Aggregating"))
+    }
+
+    /// Fetches some basic activity statistics
+    pub async fn get_basic_metrics(&self) -> Result<BasicMetrics, StorageError> {
+        let query = format!(
+            "SELECT metric, value FROM system.metrics WHERE metric IN ('Query', 'PartMutation', 'DelayedInserts', 'AsynchronousInsertThreadsActive', 'PendingAsyncInsert')"
+        );
+
+        let stats: HashMap<String, String> = self.select(query).await?.into_iter()
+            .map(|row| (row[0].clone(), row[1].clone()))
+            .collect();
+
+        Ok(BasicMetrics {
+            active_queries: stats.get("Query").map(|s| s.parse::<u64>().ok()).flatten(),
+            active_mutations: stats.get("PartMutation").map(|s| s.parse::<u64>().ok()).flatten(),
+            delayed_inserts: stats.get("DelayedInserts").map(|s| s.parse::<u64>().ok()).flatten(),
+            async_insert_active_threads: stats.get("AsynchronousInsertThreadsActive").map(|s| s.parse::<u64>().ok()).flatten(),
+            pending_async_inserts: stats.get("PendingAsyncInsert").map(|s| s.parse::<u64>().ok()).flatten(),
+        })
     }
 
     fn map_context_entries(entries: &HashMap<String, serde_json::Value>, prefix: &str) -> HashMap<String, Option<String>> {

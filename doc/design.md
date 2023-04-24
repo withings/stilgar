@@ -156,7 +156,27 @@ and sent in TSV format over to Clickhouse. This means each `INSERT`
 query always covers the same set of columns, which allows us to avoid
 inefficient input formats like TabSeparatedWithNames or JSONEachRow.
 
-## Forwarder backoff
+## Forwarder implementation
+
+### Forwarding channel and feeder function
+
+The forwarder is implemented with 2 components:
+
+- A forwarding channel which takes ownership of all destinations and
+  processes messages ; those in turn give directives as to what to do
+  with the destinations
+- A feeder function which pulls events from beanstalkd and sends them
+  to the forwarding channel
+
+For more details as to why this is necessary, refer to the note about
+async Rust below. This design allows us to give control to a single
+task/thread, yet still be able to reach the destinations from anywhere
+in the code (via message passing) :
+
+- The feeder function passes events as message, for forwarding
+- The /status endpoint passes status requests as messages
+
+### Backoff
 
 At times, it might be necessary to slow down or stop events intake as
 destination issues arise and resolve. For example, should your

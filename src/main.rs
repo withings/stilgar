@@ -5,12 +5,15 @@ mod routes;
 mod beanstalk;
 mod forwarder;
 mod middleware;
+mod webstats;
 
 use crate::beanstalk::{Beanstalk, BeanstalkProxy};
-use crate::forwarder::Forwarder;
+use crate::forwarder::{ForwardingChannel, feed_forwarding_channel};
 use crate::destinations::init_destinations;
+use crate::webstats::{WebStatsChannel, WebStatsEvent};
 
 use tokio;
+use tokio::sync::mpsc;
 use log;
 use warp;
 use simple_logger::SimpleLogger;
@@ -79,6 +82,16 @@ async fn main() {
             .map(|s| s.clone()).collect()
     );
 
+    /* Instiantiate the web stats channel */
+    let mut web_stats = WebStatsChannel::new();
+    let web_stats_handle = web_stats.handle();
+    let forwarder_stats_handle = web_stats.handle();
+
+    /* Instiantiate the forwarding channel */
+    let mut forwarder = ForwardingChannel::new(destinations, forwarder_stats_handle);
+    let forwarder_feeder_handle = forwarder.handle();
+    let forwarder_status_handle = forwarder.handle();
+
     /* Routes used to catch events */
     let any_event_route = warp::post().and(
         warp::path!("v1" / "batch")
@@ -90,6 +103,7 @@ async fn main() {
             .or(warp::path!("v1" / "track")).unify())
         .and(middleware::content_length_filter(configuration.server.payload_size_limit))
         .and(with_beanstalk(bstk_web.proxy()))
+        .and(with_stats(web_stats_handle.clone()))
         .and(middleware::basic_request_info())
         .and(middleware::write_key(all_write_keys.clone()))
         .and(middleware::compressible_body())
@@ -109,7 +123,9 @@ async fn main() {
             configuration.server.admin_username.clone(),
             configuration.server.admin_password.clone()
         ))
+        .map(move || forwarder_status_handle.clone())
         .and(with_beanstalk(bstk_web.proxy()))
+        .and(with_stats(web_stats_handle.clone()))
         .and_then(routes::status);
 
     /* Ping (root) route for monitoring */
@@ -128,13 +144,12 @@ async fn main() {
             .recover(middleware::handle_rejection)
     ).run(SocketAddr::new(configuration.server.ip, configuration.server.port));
 
-    /* Instiantiate the forwarder */
-    let mut forwarder = Forwarder::new(bstk_forwarder.proxy());
-
     /* Start everything */
     tokio::join!(
         bstk_web.run_channel(), /* run the mpsc channel for beanstalkd (PUT) */
         bstk_forwarder.run_channel(), /* same for the RESERVE channel */
+        forwarder.run_channel(), /* run the forwarding channel */
+        web_stats.run_channel(), /* run the web stats channel */
         async {
             /* once the PUT channel is ready (has processed the USE command), start taking requests */
             match use_proxy.use_tube("stilgar").await {
@@ -153,7 +168,7 @@ async fn main() {
             match watch_proxy.watch_tube("stilgar").await {
                 Ok(_) => {
                     log::info!("forwarder ready for events!");
-                    forwarder.run_for(&destinations).await
+                    feed_forwarding_channel(watch_proxy, forwarder_feeder_handle).await
                 },
                 Err(e) => {
                     log::error!("failed to watch beanstalkd tube on forwarder connection: {}", e);
@@ -162,6 +177,10 @@ async fn main() {
             }
         }
     );
+}
+
+fn with_stats(stats: mpsc::Sender<WebStatsEvent>) -> impl Filter<Extract = (mpsc::Sender<WebStatsEvent>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || stats.clone())
 }
 
 fn with_beanstalk(proxy: BeanstalkProxy) -> impl Filter<Extract = (BeanstalkProxy,), Error = std::convert::Infallible> + Clone {

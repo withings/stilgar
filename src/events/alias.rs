@@ -3,7 +3,7 @@ use crate::events::common::CommonFields;
 use serde::{Deserialize, Serialize};
 
 /// An alias event, as sent to /v1/alias
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Alias {
     #[serde(flatten)]

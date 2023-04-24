@@ -1,4 +1,4 @@
-use crate::destinations::{Destination, StorageResult, StorageError};
+use crate::destinations::{Destination, StorageResult, StorageError, DestinationStatistics};
 use crate::events::alias::Alias;
 use crate::events::group::Group;
 use crate::events::identify::Identify;
@@ -9,8 +9,9 @@ use crate::config::Settings;
 
 use std::sync::Arc;
 use std::fmt::Display;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use async_trait::async_trait;
+use serde_json;
 
 /// Does nothing, needs nothing
 pub struct Blackhole {
@@ -30,6 +31,13 @@ impl Destination for Blackhole {
         Ok(Arc::new(Blackhole {
             write_keys
         }))
+    }
+
+    /// Provides no statistics
+    async fn stats(&self) -> Result<DestinationStatistics, StorageError> {
+        Ok(HashMap::from([
+            ("status".into(), serde_json::json!("OK"))
+        ]))
     }
 
     /// Matches in the hashset without further processing

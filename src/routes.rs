@@ -1,10 +1,13 @@
 use crate::beanstalk::BeanstalkProxy;
-use crate::forwarder::ForwarderEnvelope;
+use crate::destinations::DestinationStatistics;
+use crate::forwarder::{ForwarderEnvelope, ForwardingChannelMessage, StatusRequestMessage};
 use crate::events::any::{AnyEvent, EventOrBatch, set_common_attribute};
+use crate::webstats::{WebStatsEvent, send_stats_event, fetch_stats};
 use crate::middleware;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use tokio::sync::{oneshot, mpsc};
 use chrono::Utc;
 use serde_json;
 use warp;
@@ -28,6 +31,7 @@ fn overwrite_any_received_at(event_or_batch: &mut EventOrBatch) {
 
 /// Actual event route: adds the received_at field and tries to reserialise for beanstalkd
 pub async fn event_or_batch(beanstalk: BeanstalkProxy,
+                            stats: mpsc::Sender<WebStatsEvent>,
                             request_info: middleware::BasicRequestInfo,
                             write_key: String,
                             payload: String) -> Result<impl warp::Reply, warp::Rejection> {
@@ -62,13 +66,16 @@ pub async fn event_or_batch(beanstalk: BeanstalkProxy,
     log::debug!("enqueuing job: {}", &job_payload);
 
     /* Enqueue with a delay */
-    match beanstalk.put(job_payload).await {
+    let reply = match beanstalk.put(job_payload).await {
         Ok(_) => Ok(warp::reply::with_status("OK", warp::http::StatusCode::OK)),
         Err(e) => {
             log::warn!("could not enqueue job: {}", e);
             Ok(warp::reply::with_status("KO", warp::http::StatusCode::INTERNAL_SERVER_ERROR))
         },
-    }
+    };
+
+    send_stats_event(&stats, WebStatsEvent::EventReceived).await;
+    reply
 }
 
 
@@ -100,22 +107,52 @@ pub async fn ping() -> Result<impl warp::Reply, warp::Rejection> {
 
 
 /// Status route
-pub async fn status(beanstalk: BeanstalkProxy) -> Result<impl warp::Reply, warp::Rejection> {
+pub async fn status(forwarder_channel: mpsc::Sender<ForwardingChannelMessage>,
+                    beanstalk: BeanstalkProxy,
+                    stats: mpsc::Sender<WebStatsEvent>) -> Result<impl warp::Reply, warp::Rejection> {
     let mut all_stats: HashMap<String, serde_json::Value> = HashMap::new();
     let mut all_good = true;
+
+    /* web stats */
+    let stats = fetch_stats(stats).await;
+    all_stats.insert("events".into(), serde_json::json!({
+        "up_since": stats.up_since.to_rfc3339(),
+        "received": stats.events_received,
+        "forwarded": {
+            "aliases": stats.aliases,
+            "groups": stats.groups,
+            "identifies": stats.identifies,
+            "pages": stats.pages,
+            "screens": stats.screens,
+            "tracks": stats.tracks,
+        }
+    }));
+
+    /* destination stats */
+    let (dest_stats_tx, dest_stats_rx) = oneshot::channel::<HashMap<String, DestinationStatistics>>();
+    forwarder_channel.send(ForwardingChannelMessage::Stats(StatusRequestMessage { return_tx: dest_stats_tx })).await
+        .expect("failed to send stats request to the forwarding channel");
+    let destination_stats = dest_stats_rx.await.expect("failed to receive destination stats from the forwarding channel");
+    for (destination_name, destination_stats) in destination_stats.into_iter() {
+        all_stats.insert(destination_name, serde_json::to_value(destination_stats).expect("failed to parse destination statistics"));
+    }
 
     /* beanstalkd stats */
     match beanstalk.stats().await {
         Ok(stats) => {
-            all_stats.insert("beanstalkd_status".into(), "OK".into());
-            all_stats.insert("beanstalkd_jobs_ready".into(), stats.jobs_ready.into());
-            all_stats.insert("beanstalkd_jobs_reserved".into(), stats.jobs_reserved.into());
-            all_stats.insert("beanstalkd_jobs_delayed".into(), stats.jobs_delayed.into());
-            all_stats.insert("beanstalkd_total_jobs".into(), stats.total_jobs.into());
-            all_stats.insert("beanstalkd_current_connections".into(), stats.current_connections.into());
+            all_stats.insert("beanstalkd".into(), serde_json::json!({
+                "status": "OK",
+                "current_connections": stats.current_connections,
+                "jobs": {
+                    "ready": stats.jobs_ready,
+                    "reserved": stats.jobs_reserved,
+                    "delayed": stats.jobs_delayed,
+                    "total": stats.total_jobs,
+                }
+            }));
         },
         Err(e) => {
-            all_stats.insert("beanstalkd_status".to_string(), format!("KO: {}", e).into());
+            all_stats.insert("beanstalkd".into(), serde_json::json!({"status": e.to_string()}));
             all_good = false;
         }
     }
