@@ -1,7 +1,7 @@
 use warp;
 use warp::Filter;
 use warp::filters::path::FullPath;
-use warp::http::Method;
+use warp::http::{Method, Response};
 use byte_unit::Byte as ByteSize;
 use base64::{Engine as _, engine::general_purpose};
 use std::collections::HashSet;
@@ -236,16 +236,19 @@ pub async fn handle_rejection(rejection: warp::Rejection) -> Result<impl warp::R
     log::debug!("rejecting request: {:?}", rejection);
 
     if rejection.is_not_found() {
-        Ok(warp::reply::with_status("KO", warp::http::StatusCode::NOT_FOUND))
+        Ok(Response::builder().status(warp::http::StatusCode::NOT_FOUND).body("KO"))
     } else if let Some(Unauthorized) = rejection.find() {
-        Ok(warp::reply::with_status("KO", warp::http::StatusCode::UNAUTHORIZED))
+        Ok(Response::builder()
+           .status(warp::http::StatusCode::UNAUTHORIZED)
+           .header("WWW-Authenticate", "Basic realm=stilgar, charset=\"UTF-8\"")
+           .body("KO"))
     } else if let Some(Forbidden) = rejection.find() {
-        Ok(warp::reply::with_status("KO", warp::http::StatusCode::FORBIDDEN))
+        Ok(Response::builder().status(warp::http::StatusCode::FORBIDDEN).body("KO"))
     } else if let Some(PayloadTooLarge) = rejection.find() {
-        Ok(warp::reply::with_status("KO", warp::http::StatusCode::PAYLOAD_TOO_LARGE))
+        Ok(Response::builder().status(warp::http::StatusCode::PAYLOAD_TOO_LARGE).body("KO"))
     } else if let Some(UnsupportedCompression) = rejection.find() {
-        Ok(warp::reply::with_status("KO", warp::http::StatusCode::UNSUPPORTED_MEDIA_TYPE))
+        Ok(Response::builder().status(warp::http::StatusCode::UNSUPPORTED_MEDIA_TYPE).body("KO"))
     } else {
-        Ok(warp::reply::with_status("KO", warp::http::StatusCode::BAD_REQUEST))
+        Ok(Response::builder().status(warp::http::StatusCode::BAD_REQUEST).body("KO"))
     }
 }
