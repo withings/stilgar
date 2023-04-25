@@ -1,3 +1,7 @@
 #!/bin/bash
 
-systemctl is-active -q stilgar && sudo systemctl restart stilgar
+if systemctl is-active -q stilgar; then
+    sudo systemctl restart stilgar
+else
+    true
+fi

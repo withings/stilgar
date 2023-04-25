@@ -195,6 +195,11 @@ pub fn basic_request_info() -> impl Filter<Extract = (BasicRequestInfo,), Error 
 
 pub fn request_logger() -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
     warp::any().and(basic_request_info()).map(|info: BasicRequestInfo| {
+        if info.path == "/" {
+            /* Do not log the ping route, as this could get very verbose with active monitoring */
+            return;
+        }
+
         log::info!(
             "[request] [{}] {} {} from {} length {}",
             info.request_id.unwrap_or("?".into()),
