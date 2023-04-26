@@ -63,7 +63,7 @@ def get_all(table):
 def reset():
     for tbl in ["aliases", "pages", "screens", "identifies", "tracks", "groups"]:
         Clickhouse.command("TRUNCATE TABLE IF EXISTS %s" % tbl)
-    for tbl in ["custom_test_event", "max_table_expansion_test", "max_table_width_test"]:
+    for tbl in ["custom_test_event", "custom_event_invalid_identifier", "max_table_expansion_test", "max_table_width_test"]:
         Clickhouse.command("DROP TABLE IF EXISTS %s" % tbl)
 
 

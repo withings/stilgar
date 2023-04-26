@@ -27,6 +27,7 @@ lazy_static = "1.4"
 log = { version = "0.4", features = ["serde"] }
 prost = "0.11"
 regex = "1"
+secular = { version = "1.0", features = ["bmp"] }
 serde = { version = ">= 1.0.158", features = ["derive", "rc"] }
 serde_json = "1.0"
 serde_with = "2.2"

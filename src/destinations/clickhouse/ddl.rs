@@ -6,6 +6,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use indoc::{indoc, formatdoc};
 use chrono::DateTime;
+use secular::lower_lay_string;
 
 const MAX_IDENTIFIER_LENGTH: usize = 64;
 
@@ -192,6 +193,14 @@ impl Clickhouse {
     /// Validates a table or column name (maximum size, REGEX)
     fn is_valid_identifier(&self, column_name: &String) -> bool {
         column_name.len() > 0 && column_name.len() <= MAX_IDENTIFIER_LENGTH && self.identifier_regex.is_match(column_name)
+    }
+
+    /// Transforms a string into a valid identifier (table name)
+    pub fn make_valid_identifier(name: &str) -> String {
+        lower_lay_string(name)
+            .to_lowercase()
+            .replace(|c: char| !c.is_ascii_graphic() && !c.is_whitespace(), "")
+            .replace(|c: char| !c.is_alphanumeric(), "_")
     }
 
     /// Adds any missing columns to an existing table

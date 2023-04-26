@@ -265,7 +265,7 @@ impl Destination for Clickhouse {
         for (key, value) in &track.properties {
             subtrack_kv.insert(key.into(), Self::json_to_string(value));
         }
-        self.insert(track.event.clone(), subtrack_kv).await
+        self.insert(Self::make_valid_identifier(&track.event), subtrack_kv).await
     }
 }
 

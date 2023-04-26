@@ -484,6 +484,20 @@ def test_store_track_no_user():
     assert events[0]['user_id'] is None, "unexpected user ID: %r" % events[0]['user_id']
 
 
+def test_store_track_normalise_name():
+    track = Events.track()
+    track["event"] = "Custom Event Invalid Identifier"
+    store_track = Stilgar.track(json=track)
+    assert store_track.status_code == 200, "unexpected status %d" % store_track.status_code
+
+    tracks = get_all("custom_event_invalid_identifier")
+    assert len(tracks) == 1, "expected 1 track in DB, got %d" % len(tracks)
+
+    assert_many_equals((
+        ('event', track['event'], tracks[0]['event']),
+    ))
+
+
 def test_store_track_with_user():
     track = Events.track()
     track['userId'] = Events.random_str()
