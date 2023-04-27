@@ -27,12 +27,19 @@ const ERR_NO_SUCH_COLUMN_IN_TABLE: i64 = 16;
 /// Convenience type: a row, as submitted by store_*()
 pub type Row = HashMap<String, Option<String>>;
 
-/// An insert command for the cache channel
+/// An insert message for the cache channel
 #[derive(Debug)]
 pub struct CacheInsert {
     pub table: String,
     pub row: Row,
     pub return_tx: oneshot::Sender<StorageResult>,
+}
+
+/// A message sent over the cache channel: insert or flush
+#[derive(Debug)]
+pub enum CacheMessage {
+    Insert(CacheInsert),
+    Flush,
 }
 
 /// An insert cache entry
@@ -53,7 +60,7 @@ impl Clickhouse {
     /// Inserts a row into the cache, sending it over the mpsc channel to the cache task
     pub async fn insert(&self, table: String, row: Row) -> StorageResult {
         let (return_tx, return_rx) = oneshot::channel::<StorageResult>();
-        self.cache.send(CacheInsert { table, row, return_tx }).await.expect("failed to push row to cache channel");
+        self.cache.send(CacheMessage::Insert(CacheInsert { table, row, return_tx })).await.expect("failed to push row to cache channel");
         return_rx.await.expect("failed to recover insert result from cache channel")
     }
 
@@ -88,39 +95,46 @@ impl Clickhouse {
     }
 
     /// Runs the cache channel, which owns the actual cache hashmap
-    pub async fn run_cache_channel(&self, mut rx: mpsc::Receiver<CacheInsert>) {
+    pub async fn run_cache_channel(&self, mut rx: mpsc::Receiver<CacheMessage>) {
         let mut insert_cache: InsertCacheMap = Default::default();
         let mut cache_size = 0 as usize;
 
         loop {
-            let insert_future = rx.recv();
+            let message_future = rx.recv();
             let timeout_future = tokio::time::sleep(self.cache_idle_timeout);
 
             let (flush_now, return_tx) = tokio::select! {
                 _ = timeout_future => (!insert_cache.is_empty(), None), /* you timeout, you got data = you flush */
-                insert = insert_future => {
-                    let insert = insert.expect("failed to retrieve an insert on the cache channel");
+                message = message_future => {
+                    let message = message.expect("failed to retrieve a message from the cache channel");
+                    match message {
+                        CacheMessage::Insert(insert) => {
+                            /* Sort row values by column name */
+                            let sorted_row = insert.row.iter().sorted_by(|kv1, kv2| kv1.0.cmp(&kv2.0)).collect_vec();
+                            let columns = sorted_row.iter().map(|kv| kv.0.clone()).collect::<Vec<String>>();
+                            let values = sorted_row.iter().map(|kv| kv.1.clone()).collect::<Vec<Option<String>>>();
 
-                    /* Sort row values by column name */
-                    let sorted_row = insert.row.iter().sorted_by(|kv1, kv2| kv1.0.cmp(&kv2.0)).collect_vec();
-                    let columns = sorted_row.iter().map(|kv| kv.0.clone()).collect::<Vec<String>>();
-                    let values = sorted_row.iter().map(|kv| kv.1.clone()).collect::<Vec<Option<String>>>();
+                            /* Find a cache entry for those columns, create it if necessary */
+                            let cache_key = insert.table.clone() + "," + &columns.join(",");
+                            let entry = insert_cache.entry(cache_key).or_insert_with(|| { InsertEntry {
+                                table: insert.table.clone(),
+                                columns,
+                                rows: vec![]
+                            }});
+                            entry.rows.push(values); /* add the row to cache */
+                            cache_size += 1;
+                            (cache_size >= self.cache_threshold, Some(insert.return_tx)) /* you fill the cache = you flush */
+                        },
 
-                    /* Find a cache entry for those columns, create it if necessary */
-                    let cache_key = insert.table.clone() + "," + &columns.join(",");
-                    let entry = insert_cache.entry(cache_key).or_insert_with(|| { InsertEntry {
-                        table: insert.table.clone(),
-                        columns,
-                        rows: vec![]
-                    }});
-                    entry.rows.push(values); /* add the row to cache */
-                    cache_size += 1;
-                    (cache_size >= self.cache_threshold, Some(insert.return_tx)) /* you fill the cache = you flush */
+                        CacheMessage::Flush => {
+                            (true, None)
+                        }
+                    }
                 }
             };
 
             if flush_now {
-                log::debug!("cache size threshold reached or idle timeout exceeded, will write to Clickhouse");
+                log::debug!("will flush Clickhouse cache (either cache is full, idle or a flush has been explicitely requested)");
                 let flush_result = self.flush_insert_cache(&insert_cache).await;
                 insert_cache.clear();
                 cache_size = 0;

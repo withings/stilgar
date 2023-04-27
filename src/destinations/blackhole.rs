@@ -40,6 +40,11 @@ impl Destination for Blackhole {
         ]))
     }
 
+    /// Does nothing
+    async fn flush(&self) {
+        ()
+    }
+
     /// Matches in the hashset without further processing
     fn matches_write_key(&self, subject_key: &String) -> bool {
         self.write_keys.contains(subject_key)

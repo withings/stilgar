@@ -8,12 +8,14 @@ mod middleware;
 mod webstats;
 
 use crate::beanstalk::{Beanstalk, BeanstalkProxy};
-use crate::forwarder::{ForwardingChannel, feed_forwarding_channel};
+use crate::forwarder::{ForwardingChannel, ForwardingChannelMessage, feed_forwarding_channel};
 use crate::destinations::init_destinations;
 use crate::webstats::{WebStatsChannel, WebStatsEvent};
 
 use tokio;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
+use tokio::signal::unix::{signal, SignalKind};
 use log;
 use warp;
 use simple_logger::SimpleLogger;
@@ -21,6 +23,9 @@ use warp::Filter;
 use std::sync::Arc;
 use std::net::SocketAddr;
 use std::collections::{HashMap, HashSet};
+
+/// Duration (in seconds) between a destination flush and shutdown upon signal reception
+const KILL_TIMEOUT: u64 = 5;
 
 /// Stilgar's entry point: welcome!
 #[tokio::main(flavor = "multi_thread")]
@@ -91,6 +96,7 @@ async fn main() {
     let mut forwarder = ForwardingChannel::new(destinations, forwarder_stats_handle);
     let forwarder_feeder_handle = forwarder.handle();
     let forwarder_status_handle = forwarder.handle();
+    let forwarder_flush_handle = forwarder.handle();
 
     /* Routes used to catch events */
     let any_event_route = warp::post().and(
@@ -146,6 +152,7 @@ async fn main() {
 
     /* Start everything */
     tokio::join!(
+        signal_handler(forwarder_flush_handle), /* signal handlers */
         bstk_web.run_channel(), /* run the mpsc channel for beanstalkd (PUT) */
         bstk_forwarder.run_channel(), /* same for the RESERVE channel */
         forwarder.run_channel(), /* run the forwarding channel */
@@ -177,6 +184,28 @@ async fn main() {
             }
         }
     );
+}
+
+/// Handles UNIX signals and gives destinations a final chance to flush
+async fn signal_handler(forwarder_channel: mpsc::Sender<ForwardingChannelMessage>) {
+    let mut signal_joinset: JoinSet<()> = JoinSet::new();
+    for kind in [SignalKind::interrupt(), SignalKind::terminate()] {
+        signal_joinset.spawn(async move {
+            let mut stream = signal(kind).expect("failed to set signal handler");
+            stream.recv().await;
+        });
+    }
+
+    signal_joinset.join_next().await;
+    log::info!("shutdown signal received, will request a flush to all destinations");
+    signal_joinset.shutdown().await;
+
+    forwarder_channel.send(ForwardingChannelMessage::Flush).await
+        .expect("failed to send force flush request to the forwarding channel");
+    tokio::time::sleep(tokio::time::Duration::from_secs(KILL_TIMEOUT)).await;
+
+    log::info!("shutting down!");
+    std::process::exit(0);
 }
 
 fn with_stats(stats: mpsc::Sender<WebStatsEvent>) -> impl Filter<Extract = (mpsc::Sender<WebStatsEvent>,), Error = std::convert::Infallible> + Clone {

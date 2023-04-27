@@ -56,6 +56,7 @@ pub trait Destination: Display {
     fn matches_write_key(&self, subject_key: &String) -> bool;
 
     async fn stats(&self) -> Result<DestinationStatistics, StorageError>;
+    async fn flush(&self);
 
     async fn alias(&self, alias: &Alias) -> StorageResult;
     async fn group(&self, group: &Group) -> StorageResult;

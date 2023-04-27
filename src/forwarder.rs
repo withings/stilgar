@@ -46,6 +46,7 @@ pub struct StatusRequestMessage {
 pub enum ForwardingChannelMessage {
     Event(EventForwardMessage),
     Stats(StatusRequestMessage),
+    Flush,
 }
 
 /// The forwarder channel, receiving events and passing them over to destinations
@@ -85,7 +86,13 @@ impl ForwardingChannel {
                 ForwardingChannelMessage::Stats(stats_request) => {
                     stats_request.return_tx.send(self.gather_stats().await)
                         .expect("failed to respond to stats request message on oneshot channel")
-                }
+                },
+
+                ForwardingChannelMessage::Flush => {
+                    for destination in self.destinations.iter() {
+                        destination.flush().await;
+                    }
+                },
             }
         }
     }

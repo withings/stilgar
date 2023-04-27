@@ -65,7 +65,7 @@ const SUSPEND_ERROR_CODES: [i64; 35] = [
 pub struct Clickhouse {
     write_keys: HashSet<String>,
     query: mpsc::Sender<primitives::GenericQuery>,
-    cache: mpsc::Sender<cache::CacheInsert>,
+    cache: mpsc::Sender<cache::CacheMessage>,
     database: String,
     username: String,
     password: String,
@@ -187,6 +187,11 @@ impl Destination for Clickhouse {
                 ("status".into(), serde_json::json!(e.to_string()))
             ])
         })
+    }
+
+    /// Flushes the write cache upon request
+    async fn flush(&self) {
+        self.cache.send(cache::CacheMessage::Flush).await.expect("failed to push flush message to cache channel");
     }
 
     /// Sends an alias event to cache
