@@ -39,7 +39,7 @@ pub struct CacheInsert {
 #[derive(Debug)]
 pub enum CacheMessage {
     Insert(CacheInsert),
-    Flush,
+    Flush(oneshot::Sender<StorageResult>),
 }
 
 /// An insert cache entry
@@ -126,8 +126,8 @@ impl Clickhouse {
                             (cache_size >= self.cache_threshold, Some(insert.return_tx)) /* you fill the cache = you flush */
                         },
 
-                        CacheMessage::Flush => {
-                            (true, None)
+                        CacheMessage::Flush(return_tx) => {
+                            (true, Some(return_tx))
                         }
                     }
                 }

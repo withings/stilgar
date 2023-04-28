@@ -17,7 +17,7 @@ use std::fmt::Display;
 use std::time::Duration;
 use std::collections::HashSet;
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use tokio::sync::{oneshot, mpsc};
 use regex::Regex;
 use humantime;
 use log;
@@ -191,7 +191,9 @@ impl Destination for Clickhouse {
 
     /// Flushes the write cache upon request
     async fn flush(&self) {
-        self.cache.send(cache::CacheMessage::Flush).await.expect("failed to push flush message to cache channel");
+        let (return_tx, return_rx) = oneshot::channel::<StorageResult>();
+        self.cache.send(cache::CacheMessage::Flush(return_tx)).await.expect("failed to push flush message to cache channel");
+        return_rx.await.ok(); /* flush is a last chance thing, we don't care if it fails */
     }
 
     /// Sends an alias event to cache

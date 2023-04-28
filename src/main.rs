@@ -8,12 +8,12 @@ mod middleware;
 mod webstats;
 
 use crate::beanstalk::{Beanstalk, BeanstalkProxy};
-use crate::forwarder::{ForwardingChannel, ForwardingChannelMessage, feed_forwarding_channel};
+use crate::forwarder::{ForwardingChannel, ForwardingChannelMessage, FlushMessage, feed_forwarding_channel};
 use crate::destinations::init_destinations;
 use crate::webstats::{WebStatsChannel, WebStatsEvent};
 
 use tokio;
-use tokio::sync::mpsc;
+use tokio::sync::{oneshot, mpsc};
 use tokio::task::JoinSet;
 use tokio::signal::unix::{signal, SignalKind};
 use log;
@@ -200,11 +200,19 @@ async fn signal_handler(forwarder_channel: mpsc::Sender<ForwardingChannelMessage
     log::info!("shutdown signal received, will request a flush to all destinations");
     signal_joinset.shutdown().await;
 
-    forwarder_channel.send(ForwardingChannelMessage::Flush).await
+    /* Ask for forwarder to flush all destinations (and wait for their confirmation) */
+    let (return_tx, return_rx) = oneshot::channel::<()>();
+    forwarder_channel.send(ForwardingChannelMessage::Flush(FlushMessage { return_tx })).await
         .expect("failed to send force flush request to the forwarding channel");
-    tokio::time::sleep(tokio::time::Duration::from_secs(KILL_TIMEOUT)).await;
 
-    log::info!("shutting down!");
+    /* Wait for either the confirmations or a timeout (in case destinations don't reply) */
+    let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(KILL_TIMEOUT));
+    tokio::select! {
+        _ = timeout => log::warn!("destinations failed to confirm flush on time"),
+        _ = return_rx => log::info!("clean shutdown, all destinations have flushed"),
+    };
+
+    log::info!("bye bye!");
     std::process::exit(0);
 }
 

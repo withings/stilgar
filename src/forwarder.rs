@@ -41,12 +41,18 @@ pub struct StatusRequestMessage {
     pub return_tx: oneshot::Sender<HashMap<String, DestinationStatistics>>,
 }
 
+/// An flush message for the forwarder channel
+#[derive(Debug)]
+pub struct FlushMessage {
+    pub return_tx: oneshot::Sender<()>,
+}
+
 /// Any message sent to the forwarder channel
 #[derive(Debug)]
 pub enum ForwardingChannelMessage {
     Event(EventForwardMessage),
     Stats(StatusRequestMessage),
-    Flush,
+    Flush(FlushMessage),
 }
 
 /// The forwarder channel, receiving events and passing them over to destinations
@@ -88,10 +94,11 @@ impl ForwardingChannel {
                         .expect("failed to respond to stats request message on oneshot channel")
                 },
 
-                ForwardingChannelMessage::Flush => {
+                ForwardingChannelMessage::Flush(flush_request) => {
                     for destination in self.destinations.iter() {
                         destination.flush().await;
                     }
+                    flush_request.return_tx.send(()).expect("failed to acknowledge flush request on oneshot channel");
                 },
             }
         }
