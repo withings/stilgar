@@ -17,11 +17,11 @@ byte-unit = { version = "4.0", features = ["serde"] }
 bytes = "1.4"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
-directories = "4"
+directories = "5"
 flate2 = "1.0"
 http = "0.2"
 humantime = "2.1"
-indoc = "1.0"
+indoc = "2.0"
 itertools = "0.10"
 lazy_static = "1.4"
 log = { version = "0.4", features = ["serde"] }
@@ -35,12 +35,12 @@ serde_yaml = "0.9"
 simple_logger = "4.1"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
-tonic = "0.8"
+tonic = "0.9"
 twox-hash = "1.6"
 warp = "0.3"
 
 [build-dependencies]
-tonic-build = "0.8"
+tonic-build = "0.9"
 
 [profile.docker]
 inherits = 'dev'
