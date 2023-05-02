@@ -125,10 +125,7 @@ async fn main() {
     /* Status route */
     let status_route = warp::get()
         .and(warp::path("status"))
-        .and(middleware::admin_auth_filter(
-            configuration.server.admin_username.clone(),
-            configuration.server.admin_password.clone()
-        ))
+        .and(middleware::admin_auth_filter(configuration.server.admin.clone()))
         .map(move || forwarder_status_handle.clone())
         .and(with_beanstalk(bstk_web.proxy()))
         .and(with_stats(web_stats_handle.clone()))

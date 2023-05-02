@@ -1,3 +1,5 @@
+use crate::config::Admin;
+
 use warp;
 use warp::Filter;
 use warp::filters::path::FullPath;
@@ -7,11 +9,10 @@ use base64::{Engine as _, engine::general_purpose};
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::io::prelude::*;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr};
 use std::sync::Arc;
 use bytes::Bytes;
 use flate2::read::{GzDecoder, DeflateDecoder};
-
 
 #[derive(Debug)]
 pub struct UnsupportedCompression;
@@ -120,30 +121,43 @@ pub fn write_key(write_keys_arc: Arc<HashSet<String>>) -> impl Filter<Extract = 
     })
 }
 
-pub fn admin_auth_filter(admin_username: Arc<Option<String>>, admin_password: Arc<Option<String>>) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
-    warp::header::optional("authorization").and_then(move |authorization: Option<String>| {
-        let username_arc_clone = admin_username.clone();
-        let password_arc_clone = admin_password.clone();
-        let default_password = String::new();
-        async move {
-            match username_arc_clone.as_ref() {
-                Some(expected_username) => {
-                    let expected_password = match password_arc_clone.as_ref() {
-                        Some(p) => p,
-                        None => &default_password
-                    };
-                    match authorization {
-                        Some(submitted) => match validate_basic_auth(&submitted, expected_username, &expected_password) {
-                            true => Ok(()),
-                            false => Err(warp::reject::custom(Forbidden))
-                        },
-                        None => Err(warp::reject::custom(Unauthorized))
+pub fn admin_auth_filter(admin: Arc<Option<Admin>>) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
+    warp::header::optional("authorization")
+        .and(client_ip_filter())
+        .and_then(move |authorization: Option<String>, client_ip: IpAddr| {
+            let admin_arc_clone = admin.clone();
+            let default_password = String::new();
+            async move {
+                let (admin_username, admin_password, admin_networks) = match admin_arc_clone.as_ref() {
+                    Some(a) => (&a.username, &a.password, &a.allowed_networks),
+                    None => (&None, &None, &None),
+                };
+
+                if let Some(expected_networks) = admin_networks {
+                    if !expected_networks.iter().any(|n| n.contains(client_ip)) {
+                        return Err(warp::reject::custom(Forbidden));
                     }
-                },
-                None => Ok(())
+                }
+
+                match admin_username {
+                    Some(expected_username) => {
+                        let expected_password = match admin_password {
+                            Some(p) => p,
+                            None => &default_password,
+                        };
+                        match authorization {
+                            Some(submitted) => match validate_basic_auth(&submitted, &expected_username, &expected_password) {
+                                true => Ok(()),
+                                false => Err(warp::reject::custom(Forbidden))
+                            },
+                            None => Err(warp::reject::custom(Unauthorized))
+                        }
+                    },
+                    None => Ok(())
+                }
             }
         }
-    }).untuple_one()
+    ).untuple_one()
 }
 
 
@@ -157,7 +171,7 @@ pub fn cors(origins: &Vec<String>) -> warp::cors::Builder {
 
 
 pub struct BasicRequestInfo {
-    pub client_ip: String,
+    pub client_ip: IpAddr,
     pub user_agent: Option<String>,
     pub request_id: Option<String>,
     pub method: String,
@@ -165,25 +179,32 @@ pub struct BasicRequestInfo {
     pub length: String,
 }
 
-fn infer_client_ip(x_real_ip: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<SocketAddr>) -> String {
-    let remote_addr = remote_addr.map(|addr| addr.ip().to_string()).unwrap_or(String::from("?"));
+fn infer_client_ip(x_real_ip: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<SocketAddr>) -> IpAddr {
+    let remote_addr = remote_addr.map(|addr| addr.ip().to_string());
     let client_ip = x_real_ip
         .or_else(|| x_forwarded_for.map(|forwarded_for| forwarded_for.split(",").next().map(|s| String::from(s))).flatten())
-        .unwrap_or(remote_addr);
-    String::from(client_ip)
+        .or(remote_addr);
+    client_ip.map(|i| i.parse().expect("failed to parse client IP")).expect("failed to determine a client IP")
 }
 
-pub fn basic_request_info() -> impl Filter<Extract = (BasicRequestInfo,), Error = warp::Rejection> + Clone {
+fn client_ip_filter() -> impl Filter<Extract = (IpAddr,), Error = warp::Rejection> + Clone {
     warp::header::optional("x-real-ip")
         .and(warp::header::optional("x-forwarded-for"))
         .and(warp::addr::remote())
+        .map(|real_ip: Option<String>, forwarded_for: Option<String>, remote_addr: Option<SocketAddr>| {
+            infer_client_ip(real_ip, forwarded_for, remote_addr)
+        })
+}
+
+pub fn basic_request_info() -> impl Filter<Extract = (BasicRequestInfo,), Error = warp::Rejection> + Clone {
+    client_ip_filter()
         .and(warp::header::optional("user-agent"))
         .and(warp::header::optional("x-request-id"))
         .and(warp::filters::method::method())
         .and(warp::filters::path::full())
         .and(warp::header::optional("content-length").map(|length: Option<String>| length.unwrap_or("0".into())))
-        .map(|real_ip, forwarded_for, remote_addr, user_agent, request_id, method: Method, path: FullPath, length: String| BasicRequestInfo {
-            client_ip: infer_client_ip(real_ip, forwarded_for, remote_addr),
+        .map(|client_ip, user_agent, request_id, method: Method, path: FullPath, length: String| BasicRequestInfo {
+            client_ip,
             user_agent,
             request_id,
             method: String::from(method.as_str()),

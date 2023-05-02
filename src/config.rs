@@ -1,9 +1,10 @@
-use serde::{Serialize, Deserialize};
+use serde::Deserialize;
 use std::net::IpAddr;
 use std::fs::File;
 use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use ipnetwork::IpNetwork;
 use directories::ProjectDirs;
 use byte_unit::Byte as ByteSize;
 use serde_with::serde_as;
@@ -24,9 +25,31 @@ pub mod defaults {
     pub fn forwarder_beanstalk() -> String { String::from("127.0.0.1:11300") }
 }
 
+/// Server admin block
+#[derive(Deserialize)]
+pub struct Admin {
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub allowed_networks: Option<Vec<IpNetwork>>,
+}
+
+impl Default for Admin {
+    /// Builds a default server admin block in case none is provided
+    fn default() -> Self {
+        Self {
+            username: None,
+            password: None,
+            allowed_networks: None,
+        }
+    }
+}
+
 /// Server block
 #[serde_as]
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct Server {
     /// The IP we're going to bind to
     #[serde(default = "defaults::server_ip")]
@@ -41,9 +64,7 @@ pub struct Server {
     #[serde(default)]
     pub origins: Vec<String>,
     #[serde(default)]
-    pub admin_username: Arc<Option<String>>,
-    #[serde(default)]
-    pub admin_password: Arc<Option<String>>,
+    pub admin: Arc<Option<Admin>>,
 }
 
 impl Default for Server {
@@ -54,15 +75,14 @@ impl Default for Server {
             port: defaults::server_port(),
             payload_size_limit: defaults::server_payload_size_limit(),
             origins: vec!(),
-            admin_username: Arc::new(None),
-            admin_password: Arc::new(None),
+            admin: Arc::new(None),
         }
     }
 }
 
 /// Logging block
 #[serde_as]
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct Logging {
     #[serde(default = "defaults::logging_level")]
     pub level: log::LevelFilter,
@@ -79,7 +99,7 @@ impl Default for Logging {
 
 /// Forwarder block
 #[serde_as]
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct Forwarder {
     /// Hostname and port to the beanstalkd server
     #[serde(default = "defaults::forwarder_beanstalk")]
@@ -99,7 +119,7 @@ impl Default for Forwarder {
 pub type Settings = HashMap<String, serde_yaml::Value>;
 
 /// A single destination block
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct Destination {
     /// The destination type
     #[serde(rename = "type")]
@@ -112,7 +132,7 @@ pub struct Destination {
 }
 
 /// The overall configuration file
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct Configuration {
     /// A server block
     #[serde(default)]

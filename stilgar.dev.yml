@@ -4,9 +4,14 @@ server:
   payload_size_limit: 1MiB
   origins:
     - http://localhost:8082
-  admin_username: admin
-  admin_password: p4ssw0rd
-
+  admin:
+    username: admin
+    password: p4ssw0rd
+    allowed_networks:
+      - 127.0.0.0/8
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
 logging:
   level: info
 

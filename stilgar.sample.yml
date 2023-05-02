@@ -5,8 +5,14 @@ server:
   payload_size_limit: 4MiB  # payload size limit on POST event routes
   origins:  # the list of allowed origins (CORS)
     - https://www.example.com
-  admin_username: admin  # username to access /status, remove to disable admin auth
-  admin_password: p4ssw0rd  # password to access /status, defaults to empty password
+  admin:
+    username: admin  # username to access /status, remove to disable admin auth
+    password: p4ssw0rd  # password to access /status, defaults to empty password
+    allowed_networks:  # list of IPs and/or networks in CIDR notations allowed to authenticate as admin
+      - 127.0.0.0/8
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
 
 # logging configuration
 logging:

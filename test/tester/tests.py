@@ -82,6 +82,18 @@ def test_status_good_creds():
     assert status["status"] == "OK", "unexpected status %s" % status["status"]
 
 
+def test_status_bad_network():
+    status = Stilgar.status(headers={'Authorization': 'Basic %s' % ADMIN_AUTHORIZATION, 'X-Real-IP': '8.8.8.8'})
+    assert status.status_code == 403, "unexpected status %d" % status.status_code
+
+
+def test_status_good_network():
+    status = Stilgar.status(headers={'Authorization': 'Basic %s' % ADMIN_AUTHORIZATION, 'X-Real-IP': '192.168.1.1'})
+    assert status.status_code == 200, "unexpected status %d" % status.status_code
+    status = status.json()
+    assert status["status"] == "OK", "unexpected status %s" % status["status"]
+
+
 #################
 # Rate limiting #
 #################
