@@ -4,10 +4,10 @@ modes:
 build:
   - set -o pipefail
   - apt-get -qqy update
-  - apt-get -qqy install curl build-essential pkg-config protobuf-compiler libprotobuf-dev musl-tools
+  - apt-get -qqy install curl perl build-essential protobuf-compiler libprotobuf-dev musl-tools
   - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
   - /root/.cargo/bin/rustup target add x86_64-unknown-linux-musl
-  - /root/.cargo/bin/cargo install cargo-outdated
+  - /root/.cargo/bin/cargo install -F vendored-openssl cargo-outdated
   - /root/.cargo/bin/cargo outdated --depth 1 --exit-code 1
   - /root/.cargo/bin/cargo build --release --target x86_64-unknown-linux-musl
   - docker-compose -f docker-compose-cicd.yml up --build --abort-on-container-exit --force-recreate --no-color 2>&1 | grep ^tester_
