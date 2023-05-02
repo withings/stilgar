@@ -26,6 +26,7 @@ indoc = "2.0"
 itertools = "0.10"
 lazy_static = "1.4"
 log = { version = "0.4", features = ["serde"] }
+openssl = { version = "0.10", features = ["vendored"] }
 prost = "0.11"
 regex = "1"
 secular = { version = "1.0", features = ["bmp"] }
