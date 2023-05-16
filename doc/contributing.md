@@ -24,6 +24,12 @@ To run the test container within your development environment, run:
 
     $ docker compose up --no-deps tester
 
+As a small aside, the crate also comes with an extra binary to
+troubleshoot rejected events: stilgar-check-event. To build it, enable
+the `checker` feature when building stilgar. You can then pass it a
+JSON payload on stdin, and it will try to explain why it is being
+rejected.
+
 ## Adding destinations
 
 Implementing a new destination requires 3 steps:

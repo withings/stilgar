@@ -7,3 +7,4 @@ pub mod page;
 pub mod screen;
 pub mod track;
 pub mod any;
+pub mod rejections;

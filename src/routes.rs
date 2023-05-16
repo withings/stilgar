@@ -2,6 +2,7 @@ use crate::beanstalk::BeanstalkProxy;
 use crate::destinations::DestinationStatistics;
 use crate::forwarder::{ForwarderEnvelope, ForwardingChannelMessage, StatusRequestMessage};
 use crate::events::any::{AnyEvent, EventOrBatch, set_common_attribute};
+use crate::events::rejections::explain_rejection;
 use crate::webstats::{WebStatsEvent, send_stats_event, fetch_stats};
 use crate::middleware;
 
@@ -39,15 +40,21 @@ pub async fn event_or_batch(beanstalk: BeanstalkProxy,
     let mut event_or_batch = match event_or_batch {
         Ok(eb) => eb,
         Err(_) => {
+            let request_id = request_info.request_id.unwrap_or("?".into());
+            let explanations = explain_rejection(&payload);
             log::warn!(
                 "[rejected] [{}] {} {} malformed event from {} ({}) - {}",
-                request_info.request_id.unwrap_or("?".into()),
+                request_id,
                 request_info.method,
                 request_info.path,
                 request_info.client_ip,
                 request_info.user_agent.unwrap_or("unknown user agent".into()),
-                payload
+                match explanations.is_empty() {
+                    true => "no explanation".into(),
+                    false => explanations.join(" ")
+                }
             );
+            log::warn!("[rejected] [{}] rejected payload: {}", request_id, payload);
             return Err(warp::reject::custom(middleware::InvalidJSONPayload));
         }
     };

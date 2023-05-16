@@ -8,6 +8,19 @@ authors = [
 readme = "README.md"
 version = "0.1.0"
 edition = "2021"
+default-run = "stilgar"
+
+[[bin]]
+name = "stilgar"
+path = "src/main.rs"
+
+[[bin]]
+name = "stilgar-check-event"
+path = "src/checker.rs"
+required-features = ["checker"]
+
+[features]
+checker = []
 
 [dependencies]
 async-stream = "0.3"
