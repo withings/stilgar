@@ -245,7 +245,7 @@ impl Clickhouse {
                 false => column_type
             };
             let sql = format!("ALTER TABLE {} ADD COLUMN {} {}", table_name, column_name, final_column_type);
-            log::debug!("creating missing column: {}.{} {}", table_name, column_name, column_type);
+            log::info!("creating missing column: {}.{} {}", table_name, column_name, column_type);
             self.nio(sql).await?;
         }
         Ok(())
