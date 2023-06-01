@@ -86,58 +86,53 @@ impl Beanstalk {
         let mut bufreader = BufReader::new(read);
 
         while let Some(message) = self.rx.recv().await {
-            /* Reply to the other task with... */
-            message.return_tx.send({
-                let mut response = String::new();
-                let write_result = write.write_all(message.body.command.as_bytes()).await
-                    .and(bufreader.read_line(&mut response).await)
-                    .map_err(|e| BeanstalkError::CommunicationError(e.to_string()));
-                match write_result {
-                    Ok(_) => {
-                        match message.body.more_condition {
-                            Some(prefix) => {
-                                let mut parts = response.trim().split(" ");
-                                match parts.next() {
-                                    Some(response_status) => {
-                                        if response_status == prefix {
-                                            match parts.last() {
-                                                Some(n_str) => {
-                                                    match n_str.parse::<usize>() {
-                                                        Ok(n) => {
-                                                            /* Asking for more bytes, let's read exactly that */
-                                                            let mut buffer = vec![0 as u8; n+2];
-                                                            bufreader.read_exact(&mut buffer).await
-                                                                .map(|_| format!("{}{}", response, String::from_utf8_lossy(&buffer).trim().to_string()))
-                                                                .map_err(|e| BeanstalkError::CommunicationError(e.to_string()))
-                                                        },
-                                                        Err(e) => {
-                                                            Err(BeanstalkError::UnexpectedResponse("reserve".to_string(), e.to_string()))
-                                                        }
-                                                    }
-                                                },
-                                                None => {
-                                                    Err(BeanstalkError::UnexpectedResponse("reserve".to_string(), response.clone()))
-                                                }
-                                            }
-                                        } else {
-			                    Ok(response)
-                                        }
-                                    },
-                                    None => {
-                                        Err(BeanstalkError::UnexpectedResponse("reserve".to_string(), response.clone()))
-                                    }
-                                }
-                            },
-                            None => {
-			        Ok(response)
-                            }
-                        }
-                    },
-                    Err(e) => {
-                        Err(e)
-                    }
+            /* Send the command to beanstalk and get the first response line */
+            let mut response = String::new();
+            let response_status = write.write_all(message.body.command.as_bytes()).await
+                .and(bufreader.read_line(&mut response).await);
+
+            /* Make sure we actually got a response, otherwise tell the other task it failed */
+            if let Err(e) = response_status {
+                message.return_tx.send(Err(BeanstalkError::CommunicationError(e.to_string()))).ok();
+                continue;
+            }
+
+            /* Figure out if we need to read more: the task is expecting a prefix AND that's what we get */
+            let mut response_parts = response.trim().split(" ");
+            let expect_more_content = message.body.more_condition
+                .map(|expected_prefix| response_parts.next().map(|prefix_received| expected_prefix == prefix_received))
+                .flatten().unwrap_or(false); /* default to false on Nones: no prefix or no first "part" in the response */
+
+            /* No more content, reply with the first line alone and move on */
+            if !expect_more_content {
+                message.return_tx.send(Ok(response)).ok();
+                continue;
+            }
+
+            /* Alright, more content: try to figure out how many bytes we need to read
+             * That's the last item in the first response line above */
+            let extra_payload_length = response_parts.last()
+                .map(|bytes_str| bytes_str.parse::<usize>().ok())
+                .flatten();
+            let extra_payload_length = match extra_payload_length {
+                Some(length) => length,
+                None => {
+                    /* Either there was no "last" item or it wasn't an int */
+                    message.return_tx.send(Err(BeanstalkError::UnexpectedResponse("reserve".to_string(), response.clone()))).ok();
+                    continue;
                 }
-            }).ok();
+            };
+
+            /* Let's get that extra payload now and reply */
+            let mut extra_payload_buffer = vec![0 as u8; extra_payload_length + 2];
+            let extra_read_status = bufreader.read_exact(&mut extra_payload_buffer).await;
+            message.return_tx.send(
+                extra_read_status
+                    /* we got something back: append it to the first line we already have and send the lot */
+                    .map(|_| format!("{}{}", response, String::from_utf8_lossy(&extra_payload_buffer).trim().to_string()))
+                    /* we couldn't get the extra payload: reply with an error */
+                    .map_err(|e| BeanstalkError::CommunicationError(e.to_string()))
+            ).ok();
         }
     }
 }
