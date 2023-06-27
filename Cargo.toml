@@ -36,7 +36,7 @@ flate2 = "1.0"
 http = "0.2"
 humantime = "2.1"
 indoc = "2.0"
-itertools = "0.10"
+itertools = "0.11"
 lazy_static = "1.4"
 log = { version = "0.4", features = ["serde"] }
 openssl = { version = "0.10", features = ["vendored"] }

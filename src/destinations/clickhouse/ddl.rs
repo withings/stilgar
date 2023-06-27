@@ -167,6 +167,26 @@ lazy_static! {
     ", event_basics = EVENT_BASICS.to_string(), context = CONTEXT.to_string()};
 }
 
+const TYPE_NULLABLE_BOOL: &str = "Nullable(Bool)";
+const TYPE_NULLABLE_BOOL_BREATH: u8 = 1;
+const TYPE_NULLABLE_INT: &str = "Nullable(Int64)";
+const TYPE_NULLABLE_INT_BREATH: u8 = 2;
+const TYPE_NULLABLE_FLOAT: &str = "Nullable(Float64)";
+const TYPE_NULLABLE_FLOAT_BREATH: u8 = 3;
+const TYPE_NULLABLE_DATETIME: &str = "Nullable(DateTime64(1))";
+const TYPE_NULLABLE_DATETIME_BREATH: u8 = 4;
+const TYPE_NULLABLE_LARGEST: &str = "Nullable(String)";
+const TYPE_NULLABLE_LARGEST_BREATH: u8 = 5;
+
+lazy_static! {
+    static ref TYPES_BREADTH_MAP: HashMap<String, u8> = HashMap::from([
+        (TYPE_NULLABLE_BOOL.into(), TYPE_NULLABLE_BOOL_BREATH),
+        (TYPE_NULLABLE_INT.into(), TYPE_NULLABLE_INT_BREATH),
+        (TYPE_NULLABLE_FLOAT.into(), TYPE_NULLABLE_FLOAT_BREATH),
+        (TYPE_NULLABLE_DATETIME.into(), TYPE_NULLABLE_DATETIME_BREATH),
+    ]);
+}
+
 impl Clickhouse {
     /// Creates the basic tables used by Stilgar
     pub async fn create_tables(&self) -> StorageResult {
@@ -242,12 +262,47 @@ impl Clickhouse {
             let aggregating_column_type = format!("SimpleAggregateFunction(anyLast, {})", column_type);
             let final_column_type = match use_aggregate_function {
                 true => &aggregating_column_type,
-                false => column_type
+                false => &column_type
             };
-            let sql = format!("ALTER TABLE {} ADD COLUMN {} {}", table_name, column_name, final_column_type);
             log::info!("creating missing column: {}.{} {}", table_name, column_name, column_type);
+            let sql = format!("ALTER TABLE {} ADD COLUMN {} {}", table_name, column_name, final_column_type);
             self.nio(sql).await?;
         }
+        Ok(())
+    }
+
+    /// Modify column types to broader options to try and match values which don't currently fit
+    pub async fn reshape_existing_table(&self, table_name: &String, expected_columns: HashMap<String, String>) -> StorageResult {
+        /* Identify columns which appear to have the wrong type now */
+        let current_columns = self.describe_table(&table_name).await.expect("failed to describe table");
+        let column_retypes = expected_columns.iter()
+            .map(|(name, exp_type)| current_columns.get(name.as_str()).map(|cur_type| (name, cur_type, exp_type))).flatten()
+            .filter(|(name, _cur_type, exp_type)| current_columns.get(name.as_str()).map(|cur_type| cur_type != *exp_type).unwrap_or(false))
+            .collect_vec();
+
+        for (column_name, current_type, new_type) in column_retypes {
+            /* If the current type is unknown to Stilgar, it was probably created externally or as part of the initial DDL
+             * In that case, we don't want to modify it automatically */
+            let old_column_breadth = match TYPES_BREADTH_MAP.get(current_type) {
+                Some(b) => *b,
+                None => {
+                    log::warn!("column {}.{} appears to have the wrong type ({}, should be {}) but the current type has unknown breadth",
+                               table_name, column_name, current_type, new_type);
+                    continue;
+                }
+            };
+            let new_column_breadth = *TYPES_BREADTH_MAP.get(new_type).unwrap_or(&TYPE_NULLABLE_LARGEST_BREATH);
+
+            if new_column_breadth <= old_column_breadth {
+                /* The new type has been inferred as narrower, adjusting would truncate data */
+                continue;
+            }
+
+            log::info!("adjusting type for column {}.{}: expanding from {} to {}", table_name, column_name, current_type, new_type);
+            let sql = format!("ALTER TABLE {} MODIFY COLUMN {} {}", table_name, column_name, new_type);
+            self.nio(sql).await?;
+        }
+
         Ok(())
     }
 
@@ -273,33 +328,34 @@ impl Clickhouse {
         I: Iterator<Item=&'a Option<String>>
     {
         values.map(|v| Self::infer_value_type(&v))
-            .max_by(|v1, v2| v1.0.cmp(&v2.0)) /* pick broadest type */
-            .expect("trying to infer a column type without sample values").1
+            .max_by(|v1, v2| v1.1.cmp(&v2.1)) /* pick broadest type */
+            .expect("trying to infer a column type without sample values").0
     }
 
     /// Infers a value's Clickhouse type
     /// Each type is returned with a "breadth" value: low breadth
     /// means the type is very specific, high breadth means you could
     /// store many other types in there
-    pub fn infer_value_type(value: &Option<String>) -> (u8, String) {
-        match value {
+    pub fn infer_value_type(value: &Option<String>) -> (String, u8) {
+        let type_breadth = match value {
             Some(v) => {
-                let parsed = if let Ok(_) = v.parse::<i64>() {
-                    (1, "Nullable(Int64)")
+                if v == "true" || v == "false" {
+                    (TYPE_NULLABLE_BOOL, TYPE_NULLABLE_BOOL_BREATH)
+                } else if let Ok(_) = v.parse::<i64>() {
+                    (TYPE_NULLABLE_INT, TYPE_NULLABLE_INT_BREATH)
                 } else if let Ok(_) = v.parse::<f64>() {
-                    (2, "Nullable(Float64)")
-                } else if v == "true" || v == "false" {
-                    (3, "Nullable(Boolean)")
+                    (TYPE_NULLABLE_FLOAT, TYPE_NULLABLE_FLOAT_BREATH)
                 } else if let Ok(_) = DateTime::parse_from_rfc2822(&v) {
-                    (4, "Nullable(DateTime64(1))")
+                    (TYPE_NULLABLE_DATETIME, TYPE_NULLABLE_DATETIME_BREATH)
                 } else if let Ok(_) = DateTime::parse_from_rfc3339(&v) {
-                    (5, "Nullable(DateTime64(1))")
+                    (TYPE_NULLABLE_DATETIME, TYPE_NULLABLE_DATETIME_BREATH)
                 } else {
-                    (6, "Nullable(String)")
-                };
-                (parsed.0, parsed.1.into())
+                    (TYPE_NULLABLE_LARGEST, TYPE_NULLABLE_LARGEST_BREATH)
+                }
             },
-            None => (0, "Nullable(String)".into())
-        }
+            None => (TYPE_NULLABLE_LARGEST, TYPE_NULLABLE_LARGEST_BREATH)
+        };
+
+        (type_breadth.0.into(), type_breadth.1)
     }
 }

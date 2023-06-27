@@ -23,6 +23,7 @@ pub const DEFAULT_MAX_TABLE_WIDTH: usize = 0;
 /// Interesting Clickhouse error codes
 const ERR_NO_SUCH_TABLE: i64 = 60;
 const ERR_NO_SUCH_COLUMN_IN_TABLE: i64 = 16;
+const ERRS_CANNOT_PARSE_INPUT: [i64; 5] = [27, 38, 41, 72, 467];
 
 /// Convenience type: a row, as submitted by store_*()
 pub type Row = HashMap<String, Option<String>>;
@@ -140,6 +141,10 @@ impl Clickhouse {
                 cache_size = 0;
                 log::debug!("in-memory cache cleared");
 
+                if let Err(e) = flush_result.as_ref() {
+                    log::warn!("failed to flush to cache: {}", e);
+                }
+
                 if let Some(return_tx) = return_tx {
                     return_tx.send(flush_result).expect("failed to send flush reply on the cache insert return channel");
                 }
@@ -151,6 +156,13 @@ impl Clickhouse {
         }
     }
 
+    /// Infers column types that would fit all rows in a cache entry
+    fn infer_cache_entry_types(entry: &InsertEntry) -> HashMap<String, String> {
+        entry.columns.iter().enumerate()
+            .map(|(i, c)| (c.clone(), Self::infer_vec_type(entry.rows.iter().map(|r| &r[i]))))
+            .collect::<HashMap<String, String>>()
+    }
+
     /// Flushes the insert cache to Clickhouse once the threshold has been reached
     async fn flush_insert_cache(&self, insert_cache: &InsertCacheMap) -> StorageResult {
         let mut error: Option<StorageError> = None;
@@ -160,18 +172,18 @@ impl Clickhouse {
 
             if let Err(StorageError::QueryFailure(ERR_NO_SUCH_TABLE, _, _)) = &write_result {
                 /* The table does not exist (track) : create it and try again */
-                log::debug!("missing table: {}, will try to create", cache_entry.table);
+                log::info!("missing table: {}, will try to create", cache_entry.table);
 
                 match self.get_basic_table_ddl(&cache_entry.table) {
                     Ok(ddl) => {
                         if let Err(e) = self.nio(ddl).await {
-                            log::error!("failed to create table {}: {}", cache_entry.table, e.to_string());
+                            log::error!("failed to create table {}, will skip block: {}", cache_entry.table, e.to_string());
                             error = Some(e);
                             continue;
                         }
                     },
                     Err(e) => {
-                        log::error!("failed to generate DDL for table {}: {}", cache_entry.table, e.to_string());
+                        log::error!("failed to generate DDL for table {}, will skip block: {}", cache_entry.table, e.to_string());
                         error = Some(e);
                         continue;
                     }
@@ -180,28 +192,40 @@ impl Clickhouse {
                 write_result = self.try_write(cache_entry).await;
             }
 
+            if let Err(StorageError::QueryFailure(ERR_NO_SUCH_COLUMN_IN_TABLE, _, _)) = write_result {
+                /* At least one column is missing, add it and try again
+                 * This is very likely to happen after CREATE TABLE above */
+                log::info!("missing columns in table {}, will try to expand", cache_entry.table);
+                if let Err(e) = self.extend_existing_table(&cache_entry.table, Self::infer_cache_entry_types(cache_entry)).await {
+                    log::error!("failed to extend table {}, will skip block: {}", cache_entry.table, e.to_string());
+                    error = Some(e);
+                    continue;
+                }
+
+                write_result = self.try_write(cache_entry).await;
+            }
+
             match write_result {
-                Ok(_) => {},
-                Err(StorageError::QueryFailure(ERR_NO_SUCH_COLUMN_IN_TABLE, _, _)) => {
-                    /* At least one column is missing, add it and try again
-                     * This is very likely to happen after CREATE TABLE above */
-                    /* Infer types for all columns in this entry */
-                    let entry_columns = cache_entry.columns.iter().enumerate()
-                        .map(|(i, c)| (c.clone(), Self::infer_vec_type(cache_entry.rows.iter().map(|r| &r[i]))))
-                        .collect::<HashMap<String, String>>();
+                Ok(()) => {},
+                Err(StorageError::QueryFailure(code, failed_query, error_message)) => {
+                    if ERRS_CANNOT_PARSE_INPUT.contains(&code) {
+                        /* At least one column has a type too narrow for this new batch
+                         * Try to modify their types to something broader, then try again */
+                        log::info!("some columns are too narrow in table {}, will try to reshape", cache_entry.table);
+                        if let Err(e) = self.reshape_existing_table(&cache_entry.table, Self::infer_cache_entry_types(cache_entry)).await {
+                            log::error!("failed to reshape table {}: {}", cache_entry.table, e.to_string());
+                            error = Some(e);
+                            continue;
+                        }
 
-                    /* Extend the table if necessary */
-                    if let Err(e) = self.extend_existing_table(&cache_entry.table, entry_columns).await {
-                        log::error!("failed to extend table {}: {}", cache_entry.table, e.to_string());
-                        error = Some(e);
-                        continue;
-                    }
-
-                    /* Try storing again */
-                    if let Err(e) = self.try_write(cache_entry).await {
-                        log::error!("failed to insert rows after table alterations on {}, will skip block: {}",
-                                    cache_entry.table, e.to_string());
-                        error = Some(e);
+                        /* Try storing again */
+                        if let Err(e) = self.try_write(cache_entry).await {
+                            log::error!("failed to insert rows after table reshaping on {}, will skip block: {}",
+                                        cache_entry.table, e.to_string());
+                            error = Some(e);
+                        }
+                    } else {
+                        error = Some(StorageError::QueryFailure(code, failed_query, error_message))
                     }
                 },
                 Err(e) => { error = Some(e); },

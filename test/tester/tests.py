@@ -106,6 +106,10 @@ def test_payload_too_large():
     assert len(get_all("pages")) == 0, "expected 0 page in DB, got %d" % len(pages)
 
 
+#############################
+# Table expansion/reshaping #
+#############################
+
 def test_clickhouse_max_table_expansion():
     track = Events.track()
     track["event"] = "max_table_expansion_test"
@@ -136,6 +140,40 @@ def test_clickhouse_max_table_width():
 
     events = get_all("max_table_width_test")
     assert len(events) == 2, "expected 2 events in DB after test, got %d" % len(events)
+
+
+def test_clickhouse_table_reshaping_broader():
+    type_sequence = (
+        (True, 'bool'),
+        (2, 'int'),
+        (2.5, 'float'),
+        ('Thu, 01 Jan 1970 01:00:00 CET', 'datetime_rfc2822'),
+        ('1970-01-01 01:00:00.000000000+01:00', 'datetime_rfc3339'),
+        ('foo', 'string'),
+    )
+
+    for i in range(len(type_sequence)):
+        value, type_name = type_sequence[i]
+        page = Events.page()
+        page["properties"]["expandable_property"] = value;
+        store_page = Stilgar.page(json=page)
+        assert store_page.status_code == 200, "unexpected status for %s: %d" % (type_name, store_page.status_code)
+        pages = get_all("pages")
+        assert len(pages) == i + 1, "expected %d page(s) in DB, got %d for %s reshape" % (i + 1, len(pages), type_name)
+        last_page = [p for p in pages if p["id"] == page["messageId"]][0]
+        assert last_page["expandable_property"] == value, "expandable property doesn't expand to %s" % type_name
+
+
+def test_clickhouse_table_reshaping_no_trunc():
+    for value in (3.14, 3):
+        page = Events.page()
+        page["properties"]["expanded_property"] = value;
+        store_page = Stilgar.page(json=page)
+        assert store_page.status_code == 200, "unexpected status for value %r: %d" % (value, store_page.status_code)
+
+    pages = get_all("pages")
+    assert len(pages) == 2, "expected 2 pages in DB, got %d" % (len(pages), type_name)
+    assert all(isinstance(p["expanded_property"], float) for p in pages), "expanded property hasn't stuck to float"
 
 
 ###############
