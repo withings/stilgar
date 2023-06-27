@@ -217,10 +217,15 @@ impl Clickhouse {
 
     /// Transforms a string into a valid identifier (table name)
     pub fn make_valid_identifier(name: &str) -> String {
-        lower_lay_string(name)
+        let normalised_identifier = lower_lay_string(name)
             .to_lowercase()
             .replace(|c: char| !c.is_ascii_graphic() && !c.is_whitespace(), "")
-            .replace(|c: char| !c.is_alphanumeric(), "_")
+            .replace(|c: char| !c.is_alphanumeric(), "_");
+
+        match normalised_identifier.chars().nth(0).unwrap().is_digit(10) {
+            true => format!("track_{}", normalised_identifier),
+            false => normalised_identifier
+        }
     }
 
     /// Adds any missing columns to an existing table

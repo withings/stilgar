@@ -539,13 +539,20 @@ def test_store_track_normalise_name():
     track["event"] = "Custom Event Invalid Identifier"
     store_track = Stilgar.track(json=track)
     assert store_track.status_code == 200, "unexpected status %d" % store_track.status_code
-
     tracks = get_all("custom_event_invalid_identifier")
-    assert len(tracks) == 1, "expected 1 track in DB, got %d" % len(tracks)
+    assert len(tracks) == 1, "expected 1 track in custom_event_invalid_identifier, got %d" % len(tracks)
 
     assert_many_equals((
         ('event', track['event'], tracks[0]['event']),
     ))
+
+    track = Events.track()
+    track["event"] = "2fa"
+    store_track = Stilgar.track(json=track)
+    assert store_track.status_code == 200, "unexpected status %d" % store_track.status_code
+    tracks = get_all("track_2fa")
+    assert len(tracks) == 1, "expected 1 track in track_2fa, got %d" % len(tracks)
+
 
 
 def test_store_track_with_user():

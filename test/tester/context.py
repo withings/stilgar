@@ -65,7 +65,7 @@ def reset():
         Clickhouse.command("TRUNCATE TABLE IF EXISTS %s" % tbl)
     for tbl, col in [("pages", "expandable_property"), ("pages", "expanded_property")]:
         Clickhouse.command("ALTER TABLE %s DROP COLUMN IF EXISTS %s" % (tbl, col))
-    for tbl in ["custom_test_event", "custom_event_invalid_identifier", "max_table_expansion_test", "max_table_width_test"]:
+    for tbl in ["custom_test_event", "track_2fa", "custom_event_invalid_identifier", "max_table_expansion_test", "max_table_width_test"]:
         Clickhouse.command("DROP TABLE IF EXISTS %s" % tbl)
 
 
