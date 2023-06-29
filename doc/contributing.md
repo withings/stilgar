@@ -48,5 +48,19 @@ Implementing a new destination requires 3 steps:
 There are no rules! But if you write filthy stuff into Stilgar, I (or
 my ghost) will come and do just as unspeakable things to you.
 
+Also: the CI will look for outdated dependencies and fail if anything
+isn't up to date. To avoid this issue, install `cargo-outdated` and
+configure the following pre-commit hook:
+
+    #!/bin/sh
+    which cargo-outdated >/dev/null 2>&1 || exit 0
+    echo "pre-commit: looking for outdated dependencies"
+    cargo outdated --depth 1 --exit-code 1
+
+When the hook fail, run `cargo update` to update dependencies (and
+Cargo.lock). If the update goes against the Cargo.toml requirements,
+adjust those first. In any case, make sure you run the tests to make
+sure no dependency has gone haywire.
+
 For fame and power, you can also add your name and email to
 `Cargo.toml`.
