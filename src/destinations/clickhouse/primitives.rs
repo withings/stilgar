@@ -127,10 +127,9 @@ impl Clickhouse {
                 return Err(StorageError::QueryFailure(e.code as i64, query.query.clone(), e.display_text.clone()));
             }
 
-            /* TSV parsing: Clickhouse handles the escaping nicely, we only need to watch out for tabs
-             * TODO: reverse the escaping after parsing? */
+            /* TSV parsing: Clickhouse handles the escaping nicely, we only need to watch out for tabs */
             let block_payload = String::from_utf8(block.output)
-                .map_err(|e| StorageError::QueryFailure(0, e.to_string(), query.query.clone()))?;
+                .map_err(|e| StorageError::QueryFailure(0, query.query.clone(), e.to_string()))?;
             let mut block_rows: ResultSet = block_payload
                 .split('\n')
                 .filter(|line| line.len() > 0)
@@ -303,7 +302,7 @@ impl Clickhouse {
 
         let engines = self.select(query.clone()).await?;
         if engines.is_empty() {
-            return Err(StorageError::QueryFailure(0, format!("table {} does not exist", table_name), query));
+            return Err(StorageError::QueryFailure(0, query, format!("table {} does not exist", table_name)));
         }
 
         Ok(engines[0][0].starts_with("Aggregating"))

@@ -73,7 +73,7 @@ impl Clickhouse {
         let (rows_tx, rows_rx) = mpsc::channel::<Vec<Option<String>>>(32); // TODO 32?
         let (write_tx, write_rx) = oneshot::channel::<StorageResult>();
         let write_query = InsertQuery {
-            query: sql,
+            query: sql.clone(),
             rows_channel: rows_rx,
             return_tx: write_tx
         };
@@ -83,16 +83,25 @@ impl Clickhouse {
         /* Send the query to the query task */
         self.query.send(GenericQuery::Insert(write_query)).await.expect("failed to send write query across query channel");
         let mut rows_cloned = cache_entry.rows.clone();
+        let mut send_error: Option<StorageError> = None;
         while let Some(row) = rows_cloned.pop() {
             /* Send each row over the row channel */
-            rows_tx.send(row).await.expect("failed to send row for write query");
+            if let Err(e) = rows_tx.send(row).await {
+                /* If the insert fails midway through, we'll lose the receiving end of this
+                 * Catch the error to avoid a panic and return it early */
+                send_error = Some(StorageError::QueryFailure(0, sql, e.to_string()));
+                rows_cloned.clear();
+                break;
+            }
         }
 
         /* This terminates the channel and lets the query task know we're done */
         drop(rows_tx);
 
-        /* Wait for the query task's response */
-        write_rx.await.expect("failed to receive write result from query channel")
+        match send_error {
+            Some(e) => Err(e),
+            None => write_rx.await.expect("failed to receive write result from query channel")
+        }
     }
 
     /// Runs the cache channel, which owns the actual cache hashmap
