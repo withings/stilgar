@@ -1,4 +1,3 @@
-use crate::beanstalk::BeanstalkProxy;
 use crate::destinations::DestinationStatistics;
 use crate::forwarder::{ForwarderEnvelope, ForwardingChannelMessage, StatusRequestMessage};
 use crate::events::any::{AnyEvent, EventOrBatch, set_common_attribute};
@@ -13,6 +12,7 @@ use chrono::Utc;
 use serde_json;
 use warp;
 use http;
+use mamenoki::BeanstalkClient;
 
 /// Rewrites a single event's received_at
 fn overwrite_event_received_at(event: &mut AnyEvent) {
@@ -31,7 +31,7 @@ fn overwrite_any_received_at(event_or_batch: &mut EventOrBatch) {
 }
 
 /// Actual event route: adds the received_at field and tries to reserialise for beanstalkd
-pub async fn event_or_batch(beanstalk: BeanstalkProxy,
+pub async fn event_or_batch(beanstalk: BeanstalkClient,
                             stats: mpsc::Sender<WebStatsEvent>,
                             request_info: middleware::BasicRequestInfo,
                             write_key: String,
@@ -115,7 +115,7 @@ pub async fn ping() -> Result<impl warp::Reply, warp::Rejection> {
 
 /// Status route
 pub async fn status(forwarder_channel: mpsc::Sender<ForwardingChannelMessage>,
-                    beanstalk: BeanstalkProxy,
+                    beanstalk: BeanstalkClient,
                     stats: mpsc::Sender<WebStatsEvent>) -> Result<impl warp::Reply, warp::Rejection> {
     let mut all_stats: HashMap<String, serde_json::Value> = HashMap::new();
     let mut all_good = true;

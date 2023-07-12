@@ -960,6 +960,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mamenoki"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f84e11226acd625fa24031612ffbe91befd57265f038030ff987f9ba864a3c4"
+dependencies = [
+ "log",
+ "serde",
+ "serde_yaml",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "matchit"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1610,6 +1623,7 @@ dependencies = [
  "itertools 0.11.0",
  "lazy_static",
  "log",
+ "mamenoki",
  "openssl",
  "prost",
  "regex",

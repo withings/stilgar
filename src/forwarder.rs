@@ -1,6 +1,5 @@
 use crate::events::any::{AnyEvent, EventOrBatch, set_common_attribute};
 
-use crate::beanstalk::{BeanstalkProxy, BeanstalkError};
 use crate::destinations::{Destinations, StorageResult, DestinationStatistics};
 use crate::webstats::{WebStatsEvent, send_stats_event};
 
@@ -11,6 +10,7 @@ use serde_json;
 use tokio;
 use tokio::sync::{oneshot, mpsc};
 use log;
+use mamenoki::{BeanstalkClient, BeanstalkError};
 
 /// Sleep duration after a reserve failure
 const RESERVE_FAILURE_WAIT_TIME: u64 = 10;
@@ -20,6 +20,7 @@ const DEFAULT_BACKOFF: u64 = 2;
 const MAX_BACKOFF: u64 = 300;
 /// Duration (seconds) without a backoff request after which the backoff is reset to its default
 const BACKOFF_RESET_AFTER: u64 = 30;
+const DEFAULT_RESERVE_TIMEOUT: u32 = 5;
 
 /// An event associated to a write key, for the forwarder
 #[derive(Serialize, Deserialize, Debug)]
@@ -159,13 +160,13 @@ impl ForwardingChannel {
 
 
 /// Pulls events from beanstalkd and feeds them to the forwarding channel
-pub async fn feed_forwarding_channel(beanstalk: BeanstalkProxy, forwarding_channel: mpsc::Sender<ForwardingChannelMessage>) {
+pub async fn feed_forwarding_channel(beanstalk: BeanstalkClient, forwarding_channel: mpsc::Sender<ForwardingChannelMessage>) {
     log::debug!("pushing events from beanstalkd into the forwarding channel");
     let mut exponential_backoff: u64 = DEFAULT_BACKOFF;
     let mut last_backoff = Instant::now();
 
     loop {
-        let job = match beanstalk.reserve().await {
+        let job = match beanstalk.reserve_with_timeout(DEFAULT_RESERVE_TIMEOUT).await {
             Ok(j) => j,
             Err(BeanstalkError::ReservationTimeout) => continue,
             Err(e) => {
