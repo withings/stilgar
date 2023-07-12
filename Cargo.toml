@@ -53,6 +53,7 @@ tokio = { version = "1", features = ["full"] }
 tonic = "0.9"
 twox-hash = "1.6"
 warp = "0.3"
+mamenoki = "0.1"
 
 [build-dependencies]
 tonic-build = "0.9"

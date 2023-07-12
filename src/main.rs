@@ -2,12 +2,10 @@ mod config;
 mod destinations;
 mod events;
 mod routes;
-mod beanstalk;
 mod forwarder;
 mod middleware;
 mod webstats;
 
-use crate::beanstalk::{Beanstalk, BeanstalkProxy};
 use crate::forwarder::{ForwardingChannel, ForwardingChannelMessage, FlushMessage, feed_forwarding_channel};
 use crate::destinations::init_destinations;
 use crate::webstats::{WebStatsChannel, WebStatsEvent};
@@ -23,6 +21,7 @@ use warp::Filter;
 use std::sync::Arc;
 use std::net::SocketAddr;
 use std::collections::{HashMap, HashSet};
+use mamenoki::{BeanstalkChannel, BeanstalkClient};
 
 /// Duration (in seconds) between a destination flush and shutdown upon signal reception
 const KILL_TIMEOUT: u64 = 5;
@@ -54,7 +53,7 @@ async fn main() {
         .init().expect("failed to initialise the logger");
 
     /* First connection to beanstalkd, to PUT jobs */
-    let mut bstk_web = match Beanstalk::connect(&configuration.forwarder.beanstalk).await {
+    let mut bstk_web = match BeanstalkChannel::connect(&configuration.forwarder.beanstalk).await {
         Ok(b) => b,
         Err(e) => {
             log::error!("failed to connect to Beanstalk: {}", e);
@@ -63,7 +62,7 @@ async fn main() {
     };
 
     /* Second connection to beanstalkd, to RESERVE jobs and wait */
-    let mut bstk_forwarder = match Beanstalk::connect(&configuration.forwarder.beanstalk).await {
+    let mut bstk_forwarder = match BeanstalkChannel::connect(&configuration.forwarder.beanstalk).await {
         Ok(b) => b,
         Err(e) => {
             log::error!("failed to connect to Beanstalk: {}", e);
@@ -108,7 +107,7 @@ async fn main() {
             .or(warp::path!("v1" / "screen")).unify()
             .or(warp::path!("v1" / "track")).unify())
         .and(middleware::content_length_filter(configuration.server.payload_size_limit))
-        .and(with_beanstalk(bstk_web.proxy()))
+        .and(with_beanstalk(bstk_web.create_client()))
         .and(with_stats(web_stats_handle.clone()))
         .and(middleware::basic_request_info())
         .and(middleware::write_key(all_write_keys.clone()))
@@ -127,7 +126,7 @@ async fn main() {
         .and(warp::path("status"))
         .and(middleware::admin_auth_filter(configuration.server.admin.clone()))
         .map(move || forwarder_status_handle.clone())
-        .and(with_beanstalk(bstk_web.proxy()))
+        .and(with_beanstalk(bstk_web.create_client()))
         .and(with_stats(web_stats_handle.clone()))
         .and_then(routes::status);
 
@@ -137,8 +136,8 @@ async fn main() {
         .and_then(routes::ping);
 
     /* Prepare the API and forwarder tasks */
-    let use_proxy = bstk_web.proxy();
-    let watch_proxy = bstk_forwarder.proxy();
+    let use_proxy = bstk_web.create_client();
+    let watch_proxy = bstk_forwarder.create_client();
     let webservice = warp::serve(
         any_event_route.or(source_config_route).or(status_route).or(ping_route)
             .and(middleware::request_logger())
@@ -217,6 +216,6 @@ fn with_stats(stats: mpsc::Sender<WebStatsEvent>) -> impl Filter<Extract = (mpsc
     warp::any().map(move || stats.clone())
 }
 
-fn with_beanstalk(proxy: BeanstalkProxy) -> impl Filter<Extract = (BeanstalkProxy,), Error = std::convert::Infallible> + Clone {
+fn with_beanstalk(proxy: BeanstalkClient) -> impl Filter<Extract = (BeanstalkClient,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || proxy.clone())
 }
