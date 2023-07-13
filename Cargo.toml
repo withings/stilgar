@@ -9,6 +9,10 @@ readme = "README.md"
 version = "0.1.0"
 edition = "2021"
 default-run = "stilgar"
+homepage = "https://github.com/withings/stilgar"
+repository = "https://github.com/withings/stilgar"
+keywords = ["rudderstack", "data", "tokio", "asynchronous", "clickhouse"]
+categories = ["asynchronous", "database"]
 
 [[bin]]
 name = "stilgar"
