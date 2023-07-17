@@ -1,9 +1,10 @@
 [package]
 name = "stilgar"
 description = "A lightweight, no-fuss, drop-in replacement for Rudderstack"
+license = "AGPL-3.0-or-later"
 authors = [
     "Withings <platform_ops@withings.com>",
-    "Julien Kritter <julien.kritter@withings.com",
+    "Julien Kritter <julien.kritter@withings.com>",
 ]
 readme = "README.md"
 version = "0.1.0"
@@ -43,6 +44,7 @@ indoc = "2.0"
 itertools = "0.11"
 lazy_static = "1.4"
 log = { version = "0.4", features = ["serde"] }
+mamenoki = "0.1"
 openssl = { version = "0.10", features = ["vendored"] }
 prost = "0.11"
 regex = "1"
@@ -57,7 +59,6 @@ tokio = { version = "1", features = ["full"] }
 tonic = "0.9"
 twox-hash = "1.6"
 warp = "0.3"
-mamenoki = "0.1"
 
 [build-dependencies]
 tonic-build = "0.9"

@@ -12,11 +12,18 @@ Key features:
 
 Supported sources:
 
-  - Any Rudderstack SDK, be it web, mobile or whatever
+  - Any Rudderstack SDK should work, be it web, mobile or whatever
 
-Supported destinations:
+At present, Clickhouse (over gRPC) is the only supported destination.
 
-  - Clickhouse
+## Installing
+
+Stilgar can be installed using cargo:
+
+    $ cargo install stilgar
+
+Remember to add `~/.cargo/bin` to your `PATH` as this is the default
+install location for cargo.
 
 ## Building and running
 
@@ -27,8 +34,8 @@ Build with :
     
 Stilgar takes a single runtime argument: the path to its configuration
 file. This can also be provided in the `STILGAR_CONFIG` environment
-variable. When neither of those is provided, the location is inferred
-from the following list:
+variable. When neither of those is provided, Stilgar tries those
+locations in order:
 
 1. /etc/withings/stilgar.yml
 2. /etc/withings/stilgar.yaml
@@ -37,17 +44,8 @@ from the following list:
 5. ./stilgar.yml
 6. ./stilgar.yaml
 
-## Client examples
-
-The main difference with Rudderstack is that you need to specify both
-the control and data plane URLs, and point both to Stilgar. Here's an
-example for the JS SDK:
-
-    /* initialise the SDK as usual */
-    rudderanalytics.load('your-write-key', 'https://stilgar.example.tld/', {
-        configUrl: 'https://stilgar.example.tld/'
-    });
-    /* send your events: page, track, screen, ... */
+For configuration instructions, see the
+[stilgar.sample.yml](stilgar.sample.yml) file.
 
 ## Contributing
 
