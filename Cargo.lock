@@ -286,9 +286,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.3.12"
+version = "4.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3eab9e8ceb9afdade1ab3f0fd8dbce5b1b2f468ad653baf10e771781b2b67b73"
+checksum = "8f644d0dac522c8b05ddc39aaaccc5b136d5dc4ff216610c5641e3be5becf56c"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -297,9 +297,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.3.12"
+version = "4.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f2763db829349bf00cfc06251268865ed4363b93a943174f638daf3ecdba2cd"
+checksum = "af410122b9778e024f9e0fb35682cc09cc3f85cad5e8d3ba8f47a9702df6e73d"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1437,9 +1437,9 @@ checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
 name = "scopeguard"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
+checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "secular"
@@ -1492,9 +1492,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.0.0"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f02d8aa6e3c385bf084924f660ce2a3a6bd333ba55b35e8590b321f35d88513"
+checksum = "21e47d95bc83ed33b2ecf84f4187ad1ab9685d18ff28db000c99deac8ce180e3"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -1508,9 +1508,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.0.0"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edc7d5d3932fb12ce722ee5e64dd38c504efba37567f0c402f6ca728c3b8b070"
+checksum = "ea3cee93715c2e266b9338b7544da68a9f24e227722ba482bd1c024367c77c65"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -1520,9 +1520,9 @@ dependencies = [
 
 [[package]]
 name = "serde_yaml"
-version = "0.9.23"
+version = "0.9.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da6075b41c7e3b079e5f246eb6094a44850d3a4c25a67c581c80796c80134012"
+checksum = "bd5f51e3fdb5b9cdd1577e1cb7a733474191b1aca6a72c2e50913241632c1180"
 dependencies = [
  "indexmap 2.0.0",
  "itoa",
