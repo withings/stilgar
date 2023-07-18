@@ -17,9 +17,18 @@
 use crate::events::context::Context;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
+
+fn ok_or_default<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    T: de::Deserialize<'de> + Default,
+    D: de::Deserializer<'de>,
+{
+    let v: serde_json::Value = de::Deserialize::deserialize(deserializer)?;
+    Ok(T::deserialize(v).unwrap_or_default())
+}
 
 /// Fields common to all events
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -30,8 +39,8 @@ pub struct CommonFields {
     pub context: Context,
     #[serde(default)]
     pub received_at: Option<DateTime<Utc>>,
-    #[serde(alias = "timestamp")]
-    pub original_timestamp: DateTime<Utc>,
+    #[serde(alias = "timestamp", deserialize_with = "ok_or_default")]
+    pub original_timestamp: Option<DateTime<Utc>>,
     #[serde(default)]
     pub sent_at: Option<DateTime<Utc>>,
     pub integrations: HashMap<String, serde_json::Value>,

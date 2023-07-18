@@ -353,7 +353,7 @@ impl Clickhouse {
             ("anonymous_id".into(), Some(common.anonymous_id.clone())),
             ("channel".into(), Some(common.channel.clone())),
             ("received_at".into(), Some(common.received_at.expect("missing received_at field in event after processing").timestamp().to_string())),
-            ("original_timestamp".into(), Some(common.original_timestamp.timestamp().to_string())),
+            ("original_timestamp".into(), common.original_timestamp.map(|t| t.timestamp().to_string())),
             ("sent_at".into(), common.sent_at.map(|d| d.timestamp().to_string())),
             ("id".into(), Some(common.message_id.clone())),
             ("context_locale".into(), common.context.locale.clone()),

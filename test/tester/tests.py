@@ -176,9 +176,9 @@ def test_clickhouse_table_reshaping_no_trunc():
     assert all(isinstance(p["expanded_property"], float) for p in pages), "expanded property hasn't stuck to float"
 
 
-###############
-# Compression #
-###############
+#########################
+# SDK features and bugs #
+#########################
 
 def test_sdk_gzip():
     page = Events.page()
@@ -197,6 +197,18 @@ def test_sdk_gzip():
 
     pages = get_all("pages")
     assert len(pages) == 1, "expected 1 page in DB, got %d" % len(pages)
+
+
+def test_ignore_ios_broken_timestamps():
+    page = Events.page()
+    page['originalTimestamp'] = '2023-07-18T5:00:00.00 pmZ'
+    store_page = Stilgar.page(json=page)
+    assert store_page.status_code == 200, "unexpected status %d" % store_page.status_code
+
+    pages = get_all("pages")
+    assert len(pages) == 1, "expected 1 page in DB, got %d" % len(pages)
+
+    assert pages[0]['original_timestamp'] is None, "unexpected timestamp: %r" % pages[0]['user_id']
 
 
 ################
