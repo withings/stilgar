@@ -30,11 +30,11 @@ use log;
 /// Configuration defaults
 pub mod defaults {
     use std::net::{IpAddr, Ipv4Addr};
-    use byte_unit::{Byte as ByteSize, ByteUnit};
+    use byte_unit::{Byte as ByteSize, Unit as ByteUnit};
 
     pub fn server_ip() -> IpAddr { IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) }
     pub fn server_port() -> u16 { 8080 }
-    pub fn server_payload_size_limit() -> ByteSize { ByteSize::from_unit(4.0, ByteUnit::MiB).unwrap() }
+    pub fn server_payload_size_limit() -> ByteSize { ByteSize::from_f32_with_unit(4.0, ByteUnit::MiB).unwrap() }
 
     pub fn logging_level() -> log::LevelFilter { log::LevelFilter::Info }
 

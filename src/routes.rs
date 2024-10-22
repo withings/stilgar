@@ -27,7 +27,6 @@ use tokio::sync::{oneshot, mpsc};
 use chrono::Utc;
 use serde_json;
 use warp;
-use http;
 use mamenoki::BeanstalkClient;
 
 /// Rewrites a single event's received_at
@@ -117,7 +116,7 @@ pub async fn source_config(expected_write_keys: Arc<HashSet<String>>, query_para
     Ok(
         warp::reply::with_status(
             warp::reply::json(&response),
-            if enabled { http::status::StatusCode::OK } else { http::status::StatusCode::FORBIDDEN }
+            if enabled { warp::http::status::StatusCode::OK } else { warp::http::status::StatusCode::FORBIDDEN }
         )
     )
 }
@@ -125,7 +124,7 @@ pub async fn source_config(expected_write_keys: Arc<HashSet<String>>, query_para
 
 /// Ping route
 pub async fn ping() -> Result<impl warp::Reply, warp::Rejection> {
-    Ok(warp::reply::with_status(":-)", http::status::StatusCode::OK))
+    Ok(warp::reply::with_status(":-)", warp::http::status::StatusCode::OK))
 }
 
 
@@ -184,6 +183,6 @@ pub async fn status(forwarder_channel: mpsc::Sender<ForwardingChannelMessage>,
     let json_reply = serde_json::to_value(&all_stats).expect("failed to serialise status hashmap");
     Ok(warp::reply::with_status(
         warp::reply::json(&json_reply),
-        if all_good { http::status::StatusCode::OK } else { http::status::StatusCode::INTERNAL_SERVER_ERROR }
+        if all_good { warp::http::status::StatusCode::OK } else { warp::http::status::StatusCode::INTERNAL_SERVER_ERROR }
     ))
 }

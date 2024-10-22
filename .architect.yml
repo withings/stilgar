@@ -13,7 +13,6 @@ build:
   - cargo build --release --target x86_64-unknown-linux-musl
   - docker-compose -f docker-compose-cicd.yml up --build --abort-on-container-exit --force-recreate --no-color 2>&1 | grep ^tester_
   - mkdir build
-  - strip target/x86_64-unknown-linux-musl/release/stilgar
   - mv target/x86_64-unknown-linux-musl/release/stilgar deploy.sh build
   - tar -czf stilgar.tar.gz build/
 publish: stilgar.tar.gz

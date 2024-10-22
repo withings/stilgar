@@ -7,7 +7,7 @@ authors = [
     "Julien Kritter <julien.kritter@withings.com>",
 ]
 readme = "README.md"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 default-run = "stilgar"
 homepage = "https://github.com/withings/stilgar"
@@ -30,38 +30,40 @@ checker = []
 [dependencies]
 async-stream = "0.3"
 async-trait = "0.1"
-base64 = "0.21"
-byte-unit = { version = "4.0", features = ["serde"] }
+base64 = "0.22"
+byte-unit = { version = "5.1", features = ["serde"] }
 bytes = "1.4"
 chrono = { version = "0.4", features = ["serde"] }
 ipnetwork = { version = "0.20", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 directories = "5"
 flate2 = "1.0"
-http = "0.2"
 humantime = "2.1"
 indoc = "2.0"
-itertools = "0.11"
+itertools = "0.13"
 lazy_static = "1.4"
 log = { version = "0.4", features = ["serde"] }
 mamenoki = "0.1"
 openssl = { version = "0.10", features = ["vendored"] }
-prost = "0.11"
+prost = "0.13"
 regex = "1"
 secular = { version = "1.0", features = ["bmp"] }
 serde = { version = ">= 1.0.158", features = ["derive", "rc"] }
 serde_json = "1.0"
 serde_with = "3"
 serde_yaml = "0.9"
-simple_logger = "4.1"
+simple_logger = "5.0"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
-tonic = "0.9"
-twox-hash = "1.6"
+tonic = "0.12"
+twox-hash = "2.0"
 warp = "0.3"
 
 [build-dependencies]
-tonic-build = "0.9"
+tonic-build = "0.12"
 
 [profile.docker]
 inherits = 'dev'
+
+[profile.release]
+strip = true

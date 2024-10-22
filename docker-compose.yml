@@ -29,7 +29,7 @@ services:
       - CLICKHOUSE_ADMIN_PASSWORD=mypassword
       - CLICKHOUSE_DB=mydatabase
     volumes:
-      - clickhouse_data:/bitnami/clickhouse
+      - clickhouse_data:/bitnami/clickhouse:U
       - ./test/clickhouse/conf.d:/etc/clickhouse-server/conf.d
     expose:
       - 8123
