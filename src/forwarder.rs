@@ -185,6 +185,10 @@ pub async fn feed_forwarding_channel(beanstalk: BeanstalkClient, forwarding_chan
         let job = match beanstalk.reserve_with_timeout(DEFAULT_RESERVE_TIMEOUT).await {
             Ok(j) => j,
             Err(BeanstalkError::ReservationTimeout) => continue,
+            Err(BeanstalkError::CommunicationError(e)) => {
+                log::error!("beanstalkd communication error: {}", e);
+                std::process::exit(1);
+            },
             Err(e) => {
                 log::warn!("failed to reserve job, will try again soon: {}", e);
                 tokio::time::sleep(Duration::from_secs(RESERVE_FAILURE_WAIT_TIME)).await;
