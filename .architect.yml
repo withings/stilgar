@@ -11,7 +11,6 @@ build:
   - tar -xf cargo-binstall-x86_64-unknown-linux-musl.tgz
   - mv cargo-binstall ~/.cargo/bin/
   - rustup target add x86_64-unknown-linux-musl
-  - cargo install -F vendored-openssl
   - cargo binstall -y cargo-outdated
   - cargo outdated --depth 1 --exit-code 1
   - cargo build --release --target x86_64-unknown-linux-musl
