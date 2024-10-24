@@ -94,7 +94,7 @@ impl Clickhouse {
             return_tx: write_tx
         };
 
-        log::debug!("will try to write cache entry ({} row(s)) in table {} for columns: {}", cache_entry.rows.len(), cache_entry.table, &columns);
+        log::trace!("will try to write cache entry ({} row(s)) in table {} for columns: {}", cache_entry.rows.len(), cache_entry.table, &columns);
 
         /* Send the query to the query task */
         self.query.send(GenericQuery::Insert(write_query)).await.expect("failed to send write query across query channel");
@@ -149,6 +149,10 @@ impl Clickhouse {
                             }});
                             entry.rows.push(values); /* add the row to cache */
                             cache_size += 1;
+
+                            let mid = insert.row.get("id");
+                            log::debug!(mid; "event added to cache entry for table {}, {} column(s)", entry.table, entry.columns.len());
+
                             (cache_size >= self.cache_threshold, Some(insert.return_tx)) /* you fill the cache = you flush */
                         },
 
@@ -164,7 +168,7 @@ impl Clickhouse {
                 let flush_result = self.flush_insert_cache(&insert_cache).await;
                 insert_cache.clear();
                 cache_size = 0;
-                log::debug!("in-memory cache cleared");
+                log::trace!("in-memory cache cleared");
 
                 if let Err(e) = flush_result.as_ref() {
                     log::warn!("failed to flush to cache: {}", e);

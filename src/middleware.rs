@@ -229,51 +229,6 @@ pub fn basic_request_info() -> impl Filter<Extract = (BasicRequestInfo,), Error 
         })
 }
 
-
-pub fn request_logger() -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
-    warp::any().and(basic_request_info()).map(|info: BasicRequestInfo| {
-        if info.path == "/" {
-            /* Do not log the ping route, as this could get very verbose with active monitoring */
-            return;
-        }
-
-        log::info!(
-            "[request] [{}] {} {} from {} length {}",
-            info.request_id.unwrap_or("?".into()),
-            info.method,
-            info.path,
-            info.client_ip,
-            info.length,
-        );
-    }).untuple_one()
-}
-
-pub fn response_logger(request_info: warp::log::Info) {
-    if request_info.path() == "/" {
-        /* Do not log the ping route, as this could get very verbose with active monitoring */
-        return;
-    }
-
-    let headers = request_info.request_headers();
-    let request_id = headers.get("x-request-id").map(|id| id.to_str().ok()).flatten().unwrap_or("?");
-    let client_ip = infer_client_ip(
-        headers.get("x-real-ip").map(|v| v.to_str().map(|s| String::from(s)).ok()).flatten(),
-        headers.get("x-forwarded-for").map(|v| v.to_str().map(|s| String::from(s)).ok()).flatten(),
-        request_info.remote_addr()
-    );
-
-    log::info!(
-        "[response] [{}] {} {} from {} status {} duration {}ms",
-        request_id,
-        request_info.method(),
-        request_info.path(),
-        client_ip,
-        request_info.status(),
-        request_info.elapsed().as_millis()
-    );
-}
-
-
 pub async fn handle_rejection(rejection: warp::Rejection) -> Result<impl warp::Reply, Infallible> {
     log::debug!("rejecting request: {:?}", rejection);
 

@@ -129,6 +129,7 @@ impl ForwardingChannel {
                 continue;
             }
 
+            let mid = envelope.event_or_batch.message_id();
             let (storage_result, stats_event) = match &envelope.event_or_batch {
                 EventOrBatch::Event(event) => match event {
                     AnyEvent::Alias(alias) => (destination.alias(alias).await, WebStatsEvent::AliasStored),
@@ -144,13 +145,13 @@ impl ForwardingChannel {
             if let Err(e) = storage_result {
                 if destination.error_is_critical(&e) {
                     /* Delay further job processing on destination errors */
-                    log::error!("critical destination error: {}: {}", destination, e);
+                    log::error!(mid; "critical destination error: {}: {}", destination, e);
                     store_result = Err(e);
                 } else {
-                    log::warn!("non-critical destination error: {}: {}", destination, e);
+                    log::warn!(mid; "non-critical destination error: {}: {}", destination, e);
                 }
             } else {
-                log::debug!("forwarded to destination: {}", destination);
+                log::debug!(mid; "forwarded to destination: {}", destination);
                 send_stats_event(&self.stats, stats_event).await;
             }
         }
@@ -197,7 +198,7 @@ pub async fn feed_forwarding_channel(beanstalk: BeanstalkClient, forwarding_chan
         };
 
         /* Immediately delete the job, whatever happens next */
-        log::debug!("new job from beanstalkd: {}", job.payload);
+        log::trace!("new job from beanstalkd: {}", job.payload);
         if let Err(e) = beanstalk.delete(job.id).await {
             log::error!("failed to delete job, will process anyway: {}", e);
         }

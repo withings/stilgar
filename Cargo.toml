@@ -37,12 +37,13 @@ chrono = { version = "0.4", features = ["serde"] }
 ipnetwork = { version = "0.20", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 directories = "5"
+env_logger = { version = "0.11", default-features = false, features = ["humantime"] }
 flate2 = "1.0"
 humantime = "2.1"
 indoc = "2.0"
 itertools = "0.13"
 lazy_static = "1.4"
-log = { version = "0.4", features = ["serde"] }
+log = { version = "0.4", features = ["serde", "kv_unstable_std"] }
 mamenoki = "0.1"
 openssl = { version = "0.10", features = ["vendored"] }
 prost = "0.13"
@@ -52,7 +53,6 @@ serde = { version = ">= 1.0.158", features = ["derive", "rc"] }
 serde_json = "1.0"
 serde_with = "3"
 serde_yaml = "0.9"
-simple_logger = "5.0"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 tonic = "0.12"
@@ -63,7 +63,7 @@ warp = "0.3"
 tonic-build = "0.12"
 
 [profile.docker]
-inherits = 'dev'
+inherits = "dev"
 
 [profile.release]
 strip = true

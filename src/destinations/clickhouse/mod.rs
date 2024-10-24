@@ -216,7 +216,10 @@ impl Destination for Clickhouse {
     async fn alias(&self, alias: &Alias) -> StorageResult {
         let new_id = alias.user_id.as_ref().unwrap_or(&alias.common.anonymous_id);
         if new_id == &alias.previous_id {
-            log::debug!("user IDs are identical in alias call, ignoring");
+            log::debug!(
+                mid = alias.common.message_id;
+                "user IDs are identical in alias call, ignoring"
+            );
             return Ok(())
         }
 
