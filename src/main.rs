@@ -30,10 +30,11 @@ use tokio;
 use tokio::sync::{oneshot, mpsc};
 use tokio::task::JoinSet;
 use tokio::signal::unix::{signal, SignalKind};
+use env_logger as logger;
 use log;
 use warp;
-use simple_logger::SimpleLogger;
 use warp::Filter;
+use std::io::Write;
 use std::sync::Arc;
 use std::net::SocketAddr;
 use std::collections::{HashMap, HashSet};
@@ -63,10 +64,20 @@ async fn main() {
     };
 
     /* Start logging properly */
-    SimpleLogger::new()
-        .with_level(log::LevelFilter::Off)
-        .with_module_level("stilgar", configuration.logging.level)
-        .init().expect("failed to initialise the logger");
+    let mut log_builder = logger::Builder::from_default_env();
+    log_builder.target(logger::Target::Stdout);
+    log_builder.filter_module("stilgar", configuration.logging.level);
+    log_builder.format(|buf, record| writeln!(
+        buf,
+        "{} {} [{}]{}{} {}",
+        buf.timestamp(),
+        record.level(),
+        record.module_path().unwrap_or("stilgar::<unknown>"),
+        record.key_values().get("rid".into()).map(|i| format!(" [{}]", i)).unwrap_or("".into()),
+        record.key_values().get("mid".into()).map(|i| format!(" [{}]", i)).unwrap_or("".into()),
+        record.args(),
+    ));
+    log_builder.init();
 
     /* First connection to beanstalkd, to PUT jobs */
     let mut bstk_web = match BeanstalkChannel::connect(&configuration.forwarder.beanstalk).await {
@@ -156,9 +167,7 @@ async fn main() {
     let watch_proxy = bstk_forwarder.create_client();
     let webservice = warp::serve(
         any_event_route.or(source_config_route).or(status_route).or(ping_route)
-            .and(middleware::request_logger())
             .with(middleware::cors(&configuration.server.origins))
-            .with(warp::log::custom(middleware::response_logger))
             .recover(middleware::handle_rejection)
     ).run(SocketAddr::new(configuration.server.ip, configuration.server.port));
 

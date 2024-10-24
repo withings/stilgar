@@ -27,12 +27,12 @@ use chrono::{DateTime, Utc};
 macro_rules! set_common_attribute {
     ($event:expr, $field:ident, $value:expr) => {
         match $event {
-            AnyEvent::Alias(alias) => alias.common.$field = $value,
-            AnyEvent::Group(group) => group.common.$field = $value,
-            AnyEvent::Identify(group) => group.common.$field = $value,
-            AnyEvent::Page(group) => group.common.$field = $value,
-            AnyEvent::Screen(group) => group.common.$field = $value,
-            AnyEvent::Track(group) => group.common.$field = $value,
+            AnyEvent::Alias(e) => e.common.$field = $value,
+            AnyEvent::Group(e) => e.common.$field = $value,
+            AnyEvent::Identify(e) => e.common.$field = $value,
+            AnyEvent::Page(e) => e.common.$field = $value,
+            AnyEvent::Screen(e) => e.common.$field = $value,
+            AnyEvent::Track(e) => e.common.$field = $value,
         };
     };
 }
@@ -72,4 +72,26 @@ pub struct Batch {
 pub enum EventOrBatch {
     Event(AnyEvent),
     Batch(Batch),
+}
+
+impl AnyEvent {
+    pub fn message_id(&self) -> String {
+        match self {
+            AnyEvent::Alias(e) => e.common.message_id.clone(),
+            AnyEvent::Group(e) => e.common.message_id.clone(),
+            AnyEvent::Identify(e) => e.common.message_id.clone(),
+            AnyEvent::Page(e) => e.common.message_id.clone(),
+            AnyEvent::Screen(e) => e.common.message_id.clone(),
+            AnyEvent::Track(e) => e.common.message_id.clone(),
+        }
+    }
+}
+
+impl EventOrBatch {
+    pub fn message_id(&self) -> String {
+        match self {
+            EventOrBatch::Event(e) => e.message_id(),
+            EventOrBatch::Batch(b) => b.batch[0].message_id(),
+        }
+    }
 }

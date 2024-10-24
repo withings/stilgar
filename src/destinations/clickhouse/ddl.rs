@@ -275,7 +275,7 @@ impl Clickhouse {
             )))
         }
 
-        log::debug!("{} missing column(s) in table {}: will try to extend", missing_columns.len(), table_name);
+        log::trace!("{} missing column(s) in table {}: will try to extend", missing_columns.len(), table_name);
         let use_aggregate_function = self.table_is_aggregating(&table_name).await?;
 
         /* Create them */

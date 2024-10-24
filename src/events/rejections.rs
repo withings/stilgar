@@ -26,7 +26,6 @@ use serde_json;
 
 /// Attempts to parse a single event as various event types and explains why not
 fn explain_event_rejection(event: serde_json::Value) -> Option<String> {
-    println!("{}", event);
     match event.get("type").map(|t| t.as_str()).flatten() {
         Some(t) => {
             match t {

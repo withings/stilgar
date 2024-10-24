@@ -51,15 +51,25 @@ pub async fn event_or_batch(beanstalk: BeanstalkClient,
                             request_info: middleware::BasicRequestInfo,
                             write_key: String,
                             payload: String) -> Result<impl warp::Reply, warp::Rejection> {
+    /* Log the request upon reception */
+    let rid = request_info.request_id.unwrap_or("-".into());
+    log::info!(
+        rid;
+        "[request] {} {} from {} length {}",
+        request_info.method,
+        request_info.path,
+        request_info.client_ip,
+        request_info.length,
+    );
+
     let event_or_batch = serde_json::from_str::<EventOrBatch>(&payload);
     let mut event_or_batch = match event_or_batch {
         Ok(eb) => eb,
         Err(_) => {
-            let request_id = request_info.request_id.unwrap_or("?".into());
             let explanations = explain_rejection(&payload);
             log::warn!(
-                "[rejected] [{}] {} {} malformed event from {} ({}) - {}",
-                request_id,
+                rid;
+                "[rejected] {} {} malformed event from {} ({}) - {}",
                 request_info.method,
                 request_info.path,
                 request_info.client_ip,
@@ -69,35 +79,46 @@ pub async fn event_or_batch(beanstalk: BeanstalkClient,
                     false => explanations.join(" ")
                 }
             );
-            log::warn!("[rejected] [{}] rejected payload: {}", request_id, payload);
+            log::warn!(rid; "[rejected] rejected payload: {}", payload);
             return Err(warp::reject::custom(middleware::InvalidJSONPayload));
         }
     };
 
     /* Re-serialise the job for beanstalkd */
+    let mid = event_or_batch.message_id();
     overwrite_any_received_at(&mut event_or_batch);
     let envelope = ForwarderEnvelope { write_key, event_or_batch };
     let job_payload = match serde_json::to_string(&envelope) {
         Ok(j) => j,
         Err(e) => {
-            log::debug!("failed to re-serialise event: {}", e);
+            log::debug!(mid; "failed to re-serialise event: {}", e);
             return Ok(warp::reply::with_status("KO", warp::http::StatusCode::INTERNAL_SERVER_ERROR));
         }
     };
 
-    log::debug!("enqueuing job: {}", &job_payload);
+    log::trace!(mid; "enqueuing job: {}", &job_payload);
 
-    /* Enqueue with a delay */
-    let reply = match beanstalk.put(job_payload).await {
-        Ok(_) => Ok(warp::reply::with_status("OK", warp::http::StatusCode::OK)),
+    /* Send to beanstalkd */
+    let (body, status) = match beanstalk.put(job_payload).await {
+        Ok(_) => ("OK", warp::http::StatusCode::OK),
         Err(e) => {
-            log::warn!("could not enqueue job: {}", e);
-            Ok(warp::reply::with_status("KO", warp::http::StatusCode::INTERNAL_SERVER_ERROR))
+            log::warn!(mid; "could not enqueue job: {}", e);
+            ("KO", warp::http::StatusCode::INTERNAL_SERVER_ERROR)
         },
     };
 
     send_stats_event(&stats, WebStatsEvent::EventReceived).await;
-    reply
+
+    log::info!(
+        rid, mid;
+        "[response] {} {} from {} status {}",
+        request_info.method,
+        request_info.path,
+        request_info.client_ip,
+        status
+    );
+
+    Ok(warp::reply::with_status(body, status))
 }
 
 
