@@ -17,6 +17,13 @@ server:
 # logging configuration
 logging:
   level: info  # log level, one of: off, error, warn, info, debug, trace
+  syslog:  # optional, logs to stdout by default
+    protocol: udp  # tcp, udp
+    facility: user  # syslog facility
+    host: localhost  # syslog host
+    port: 514  # syslog port
+    process: stilgar  # process name, optional, defaults to argv[0]
+
 
 # configures the worker which forwards events to destinations
 forwarder:
