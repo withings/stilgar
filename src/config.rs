@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use ipnetwork::IpNetwork;
 use directories::ProjectDirs;
 use byte_unit::Byte as ByteSize;
+use flexi_logger::writers::SyslogFacility;
 use serde_with::serde_as;
 use serde_yaml;
 use log;
@@ -31,12 +32,15 @@ use log;
 pub mod defaults {
     use std::net::{IpAddr, Ipv4Addr};
     use byte_unit::{Byte as ByteSize, Unit as ByteUnit};
+    use flexi_logger::writers::SyslogFacility;
 
     pub fn server_ip() -> IpAddr { IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) }
     pub fn server_port() -> u16 { 8080 }
     pub fn server_payload_size_limit() -> ByteSize { ByteSize::from_f32_with_unit(4.0, ByteUnit::MiB).unwrap() }
 
     pub fn logging_level() -> log::LevelFilter { log::LevelFilter::Info }
+    pub fn logging_syslog_port() -> u16 { 514 }
+    pub fn logging_syslog_facility() -> SyslogFacility { SyslogFacility::UserLevel }
 
     pub fn forwarder_beanstalk() -> String { String::from("127.0.0.1:11300") }
 }
@@ -96,12 +100,28 @@ impl Default for Server {
     }
 }
 
+/// Syslog configuration
+#[serde_as]
+#[derive(Deserialize)]
+pub struct Syslog {
+    pub protocol: String,
+    pub host: String,
+    #[serde(default = "defaults::logging_syslog_port")]
+    pub port: u16,
+    #[serde(default = "defaults::logging_syslog_facility", deserialize_with = "crate::logging::parse_facility")]
+    pub facility: SyslogFacility,
+    #[serde(default)]
+    pub process: Option<String>,
+}
+
 /// Logging block
 #[serde_as]
 #[derive(Deserialize)]
 pub struct Logging {
     #[serde(default = "defaults::logging_level")]
     pub level: log::LevelFilter,
+    #[serde(default)]
+    pub syslog: Option<Syslog>,
 }
 
 impl Default for Logging {
@@ -109,6 +129,7 @@ impl Default for Logging {
     fn default() -> Self {
         return Self {
             level: defaults::logging_level(),
+            syslog: None,
         }
     }
 }

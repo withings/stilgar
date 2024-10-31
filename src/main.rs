@@ -15,6 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>. */
 
 mod config;
+mod logging;
 mod destinations;
 mod events;
 mod routes;
@@ -30,11 +31,9 @@ use tokio;
 use tokio::sync::{oneshot, mpsc};
 use tokio::task::JoinSet;
 use tokio::signal::unix::{signal, SignalKind};
-use env_logger as logger;
 use log;
 use warp;
 use warp::Filter;
-use std::io::Write;
 use std::sync::Arc;
 use std::net::SocketAddr;
 use std::collections::{HashMap, HashSet};
@@ -64,20 +63,7 @@ async fn main() {
     };
 
     /* Start logging properly */
-    let mut log_builder = logger::Builder::from_default_env();
-    log_builder.target(logger::Target::Stdout);
-    log_builder.filter_module("stilgar", configuration.logging.level);
-    log_builder.format(|buf, record| writeln!(
-        buf,
-        "{} {} [{}]{}{} {}",
-        buf.timestamp(),
-        record.level(),
-        record.module_path().unwrap_or("stilgar::<unknown>"),
-        record.key_values().get("rid".into()).map(|i| format!(" [{}]", i)).unwrap_or("".into()),
-        record.key_values().get("mid".into()).map(|i| format!(" [{}]", i)).unwrap_or("".into()),
-        record.args(),
-    ));
-    log_builder.init();
+    logging::init_logger(&configuration.logging);
 
     /* First connection to beanstalkd, to PUT jobs */
     let mut bstk_web = match BeanstalkChannel::connect(&configuration.forwarder.beanstalk).await {
