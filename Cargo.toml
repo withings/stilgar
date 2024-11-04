@@ -38,7 +38,7 @@ ipnetwork = { version = "0.20", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 directories = "5"
 flate2 = "1.0"
-flexi_logger = { version = "0.29", features = ["kv", "syslog_writer"] }
+flexi_logger = { git = "https://github.com/emabee/flexi_logger.git", rev = "refs/pull/182/head", features = ["kv", "syslog_writer"] }
 humantime = "2.1"
 indoc = "2.0"
 itertools = "0.13"
