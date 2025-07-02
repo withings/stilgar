@@ -23,7 +23,7 @@ mod forwarder;
 mod middleware;
 mod webstats;
 
-use crate::forwarder::{ForwardingChannel, ForwardingChannelMessage, FlushMessage, feed_forwarding_channel};
+use crate::forwarder::{ForwardingChannel, ForwardingChannelAdminMessage, FlushMessage};
 use crate::destinations::init_destinations;
 use crate::webstats::{WebStatsChannel, WebStatsEvent};
 
@@ -37,7 +37,6 @@ use warp::Filter;
 use std::sync::Arc;
 use std::net::SocketAddr;
 use std::collections::{HashMap, HashSet};
-use mamenoki::{BeanstalkChannel, BeanstalkClient};
 
 /// Duration (in seconds) between a destination flush and shutdown upon signal reception
 const KILL_TIMEOUT: u64 = 5;
@@ -65,24 +64,6 @@ async fn main() {
     /* Start logging properly */
     logging::init_logger(&configuration.logging);
 
-    /* First connection to beanstalkd, to PUT jobs */
-    let mut bstk_web = match BeanstalkChannel::connect(&configuration.forwarder.beanstalk).await {
-        Ok(b) => b,
-        Err(e) => {
-            log::error!("failed to connect to Beanstalk: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    /* Second connection to beanstalkd, to RESERVE jobs and wait */
-    let mut bstk_forwarder = match BeanstalkChannel::connect(&configuration.forwarder.beanstalk).await {
-        Ok(b) => b,
-        Err(e) => {
-            log::error!("failed to connect to Beanstalk: {}", e);
-            std::process::exit(1);
-        }
-    };
-
     /* Instantiate all Destination structs as per the configuration */
     let destinations = match init_destinations(&configuration.destinations).await {
         Ok(d) => d,
@@ -104,11 +85,16 @@ async fn main() {
     let web_stats_handle = web_stats.handle();
     let forwarder_stats_handle = web_stats.handle();
 
-    /* Instiantiate the forwarding channel */
-    let mut forwarder = ForwardingChannel::new(destinations, forwarder_stats_handle);
-    let forwarder_feeder_handle = forwarder.handle();
-    let forwarder_status_handle = forwarder.handle();
-    let forwarder_flush_handle = forwarder.handle();
+    /* Instantiate the forwarding channel */
+    let mut forwarder = ForwardingChannel::new(
+        configuration.forwarder.max_queue_size,
+        destinations,
+        forwarder_stats_handle
+    );
+    let forwarder_event_handle = forwarder.events_handle();
+    let forwarder_status_events_handle = forwarder.events_handle();
+    let forwarder_status_admin_handle = forwarder.admin_handle();
+    let forwarder_flush_handle = forwarder.admin_handle();
 
     /* Routes used to catch events */
     let any_event_route = warp::post().and(
@@ -120,7 +106,7 @@ async fn main() {
             .or(warp::path!("v1" / "screen")).unify()
             .or(warp::path!("v1" / "track")).unify())
         .and(middleware::content_length_filter(configuration.server.payload_size_limit))
-        .and(with_beanstalk(bstk_web.create_client()))
+        .map(move || forwarder_event_handle.clone())
         .and(with_stats(web_stats_handle.clone()))
         .and(middleware::basic_request_info())
         .and(middleware::write_key(all_write_keys.clone()))
@@ -138,8 +124,8 @@ async fn main() {
     let status_route = warp::get()
         .and(warp::path("status"))
         .and(middleware::admin_auth_filter(configuration.server.admin.clone()))
-        .map(move || forwarder_status_handle.clone())
-        .and(with_beanstalk(bstk_web.create_client()))
+        .map(move || (forwarder_status_events_handle.clone(), forwarder_status_admin_handle.clone()))
+        .untuple_one()
         .and(with_stats(web_stats_handle.clone()))
         .and_then(routes::status);
 
@@ -149,8 +135,6 @@ async fn main() {
         .and_then(routes::ping);
 
     /* Prepare the API and forwarder tasks */
-    let use_proxy = bstk_web.create_client();
-    let watch_proxy = bstk_forwarder.create_client();
     let webservice = warp::serve(
         any_event_route.or(source_config_route).or(status_route).or(ping_route)
             .with(middleware::cors(&configuration.server.origins))
@@ -160,41 +144,14 @@ async fn main() {
     /* Start everything */
     tokio::join!(
         signal_handler(forwarder_flush_handle), /* signal handlers */
-        bstk_web.run_channel(), /* run the mpsc channel for beanstalkd (PUT) */
-        bstk_forwarder.run_channel(), /* same for the RESERVE channel */
-        forwarder.run_channel(), /* run the forwarding channel */
+        forwarder.run_channel(), /* run the events channel */
         web_stats.run_channel(), /* run the web stats channel */
-        async {
-            /* once the PUT channel is ready (has processed the USE command), start taking requests */
-            match use_proxy.use_tube("stilgar").await {
-                Ok(_) => {
-                    log::info!("webservice ready for events!");
-                    webservice.await
-                },
-                Err(e) => {
-                    log::error!("failed to use beanstalkd tube on webservice connection: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        },
-        async {
-            /* same for WATCH and the forwarder/worker */
-            match watch_proxy.watch_tube("stilgar").await {
-                Ok(_) => {
-                    log::info!("forwarder ready for events!");
-                    feed_forwarding_channel(watch_proxy, forwarder_feeder_handle).await
-                },
-                Err(e) => {
-                    log::error!("failed to watch beanstalkd tube on forwarder connection: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
+        async { webservice.await }, /* run the API */
     );
 }
 
 /// Handles UNIX signals and gives destinations a final chance to flush
-async fn signal_handler(forwarder_channel: mpsc::Sender<ForwardingChannelMessage>) {
+async fn signal_handler(forwarder_channel: mpsc::Sender<ForwardingChannelAdminMessage>) {
     let mut signal_joinset: JoinSet<()> = JoinSet::new();
     for kind in [SignalKind::interrupt(), SignalKind::terminate()] {
         signal_joinset.spawn(async move {
@@ -209,7 +166,7 @@ async fn signal_handler(forwarder_channel: mpsc::Sender<ForwardingChannelMessage
 
     /* Ask for forwarder to flush all destinations (and wait for their confirmation) */
     let (return_tx, return_rx) = oneshot::channel::<()>();
-    forwarder_channel.send(ForwardingChannelMessage::Flush(FlushMessage { return_tx })).await
+    forwarder_channel.send(ForwardingChannelAdminMessage::Flush(FlushMessage { return_tx })).await
         .expect("failed to send force flush request to the forwarding channel");
 
     /* Wait for either the confirmations or a timeout (in case destinations don't reply) */
@@ -225,8 +182,4 @@ async fn signal_handler(forwarder_channel: mpsc::Sender<ForwardingChannelMessage
 
 fn with_stats(stats: mpsc::Sender<WebStatsEvent>) -> impl Filter<Extract = (mpsc::Sender<WebStatsEvent>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || stats.clone())
-}
-
-fn with_beanstalk(proxy: BeanstalkClient) -> impl Filter<Extract = (BeanstalkClient,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || proxy.clone())
 }

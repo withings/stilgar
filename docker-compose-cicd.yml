@@ -1,11 +1,6 @@
 version: '3'
 services:
 
-  beanstalkd:
-    extends:
-      file: docker-compose.yml
-      service: beanstalkd
-
   clickhouse:
     extends:
       file: docker-compose.yml
@@ -25,7 +20,6 @@ services:
     build: test/tester
     depends_on:
       - stilgar
-      - beanstalkd
       - clickhouse
 
 volumes:

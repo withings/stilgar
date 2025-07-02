@@ -13,10 +13,10 @@ server:
       - 172.16.0.0/12
       - 192.168.0.0/16
 logging:
-  level: info
+  level: debug
 
 forwarder:
-  beanstalk: beanstalkd:11300
+  max_queue_size: 10
 
 destinations:
   - type: blackhole

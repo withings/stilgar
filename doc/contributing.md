@@ -12,7 +12,6 @@ This setup will include:
 
 - A container which watches for changes and rebuilds Stilgar when you
   change the code
-- A beanstalkd server
 - A basic HTML page which uses the Rudderstack JS SDK to store a page event.
   Visit it at `localhost:8082`. Feel free to extend it: `test/js`.
 - A Clickhouse instance
