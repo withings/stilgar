@@ -2,7 +2,7 @@
 server:
   ip: 0.0.0.0  # the IP to bind to
   port: 8080  # the port to listen on
-  payload_size_limit: 4MiB  # payload size limit on POST event routes
+  payload_size_limit: 64KiB  # payload size limit on POST event routes
   origins:  # the list of allowed origins (CORS)
     - https://www.example.com
   admin:
@@ -27,7 +27,7 @@ logging:
 
 # configures the worker which forwards events to destinations
 forwarder:
-  beanstalk: beanstalkd-host:11300  # where to find beanstalkd
+  max_queue_size: 65536  # maximum number of events queued before clients are rejected
 
 # configures the destinations
 destinations:

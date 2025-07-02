@@ -1,18 +1,17 @@
 # Stilgar: overview and design
 
 Understanding Stilgar boils down to knowing one thing about it: it is
-both asynchronous (in code, and through beanstalkd) and
-multi-threaded. This explains most of the design decisions made in the
-code base.
+both asynchronous and multi-threaded. This explains most of the design
+decisions made in the code base.
 
 ## Basics
 
 For any destination, the basic lifecycle of an event is a follows:
 
 1. Events are sent to the Stilgar web service
-2. The payloads are queued into beanstalkd
-3. A separate forwarder thread pops events from the queue and forwards
-   them to your destinations
+2. The payloads are queued into a Tokio channel
+3. A separate forwarder thread pops events from the channel and
+   forwards them to your destinations
 
 Events are received in POST on the same endpoints as Rudderstack
 `[main.rs, routes.rs]`, that is:
@@ -41,28 +40,28 @@ Stilgar exposes 2 endpoints for monitoring:
 - A `/ping` route which simply replies with *pong*. This route does
   not require authentication and can be used to determine whether
   Stilgar is running or not (eg. in a healthcheck).
-- A `/status` route which provides some basic statistics, mostly about
-  the beanstalkd queue. This route supports authentication, using
-  admin credentials (not the write keys).
+- A `/status` route which provides some basic statistics. This route
+  supports authentication, using admin credentials (not the write
+  keys).
 
 ## Global event flow diagram
 
     Web services logic
     ------------------
 
-            +-------+      +---------+      +------------+
-            | event +------> /page   +------> beanstalkd |
-            +-------+      | /screen |      |   queue    |
-                           |   ...   |      +------+-----+
-                           +---------+             |
-                            API tasks              |
-                                                   |
-                                                   | reserve
-    Forwarder logic                                | job
-    ---------------                                |
-                                                   |
-                                  +-----------+    |
-                                  | forwarder <----+
+            +-------+      +---------+      +-----------+
+            | event +------> /page   +------>   tokio   |
+            +-------+      | /screen |      |  channel  |
+                           |   ...   |      +-----+-----+
+                           +---------+            |
+                            API tasks             |
+                                                  |
+                                                  |
+    Forwarder logic                               |
+    ---------------                               |
+                                                  |
+                                  +-----------+   |
+                                  | forwarder <---+
                                   +-----+-----+
                                         |
                                         |
@@ -103,6 +102,25 @@ Stilgar exposes 2 endpoints for monitoring:
                                                    |
                                                    v
                                               destination
+
+## Queue and forwarder
+
+When an event arrives, it is not processed immediately. Instead, it is
+pushed to an internal queue (Tokio channel) and the forwarder pops
+elements from that queue as fast as it can.
+
+Should the event rate exceed the forwarder's capacity, the queue is
+expected to fill up and Stilgar will start issuing HTTP 503 responses
+to clients, rejecting events. You should therefore monitor those
+response codes and use them as hints that you need to scale up. You
+may do so by increasing the queue size (keep your RAM size in mind) or
+by adding Stilgar instances.
+
+It should also be noted that the forwarder implements an exponential
+backoff when sending events to destinations. When one of them returns
+an error, it will take a break from event processing, forcing the
+queue to accumulate events for a time and the API to eventually reject
+clients.
 
 ## Destinations
 
@@ -156,43 +174,6 @@ and sent in TSV format over to Clickhouse. This means each `INSERT`
 query always covers the same set of columns, which allows us to avoid
 inefficient input formats like TabSeparatedWithNames or JSONEachRow.
 
-## Forwarder implementation
-
-### Forwarding channel and feeder function
-
-The forwarder is implemented with 2 components:
-
-- A forwarding channel which takes ownership of all destinations and
-  processes messages ; those in turn give directives as to what to do
-  with the destinations
-- A feeder function which pulls events from beanstalkd and sends them
-  to the forwarding channel
-
-For more details as to why this is necessary, refer to the note about
-async Rust below. This design allows us to give control to a single
-task/thread, yet still be able to reach the destinations from anywhere
-in the code (via message passing) :
-
-- The feeder function passes events as message, for forwarding
-- The /status endpoint passes status requests as messages
-
-### Backoff
-
-At times, it might be necessary to slow down or stop events intake as
-destination issues arise and resolve. For example, should your
-Clickhouse destination become unavailable due to a network issue, it
-would be wise to let events accumulate in the beanstalkd queue rather
-than the in-memory destination cache.
-
-To this end, destinations can return error statuses to the forwarder
-when storing events. When it receives those, it will update its
-exponential backoff duration and sleep before reserving a new job from
-beanstalkd.
-
-This will progressively slow down the forwarding process and allow
-events to stack up in the beanstalkd queue. Configuring your queue to
-be persisted on disk will allow you to recover your events even if the
-destination issue ends up requiring a Stilgar restart.
 
 ## A note about asynchronous Rust
 
@@ -207,7 +188,6 @@ pointers like `Arc` and locks, Stilgar goes the other way and uses
 
 There are a handful of resources which need to be shared in Stilgar:
 
-- The TCP streams to beanstalkd, used by all API routes.
 - The TCP streams to Clickhouse
 - The Clickhouse in-memory cache
 - ...

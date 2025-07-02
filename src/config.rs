@@ -36,13 +36,13 @@ pub mod defaults {
 
     pub fn server_ip() -> IpAddr { IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) }
     pub fn server_port() -> u16 { 8080 }
-    pub fn server_payload_size_limit() -> ByteSize { ByteSize::from_f32_with_unit(4.0, ByteUnit::MiB).unwrap() }
+    pub fn server_payload_size_limit() -> ByteSize { ByteSize::from_u64_with_unit(64, ByteUnit::KiB).unwrap() }
 
     pub fn logging_level() -> log::LevelFilter { log::LevelFilter::Info }
     pub fn logging_syslog_port() -> u16 { 514 }
     pub fn logging_syslog_facility() -> SyslogFacility { SyslogFacility::UserLevel }
 
-    pub fn forwarder_beanstalk() -> String { String::from("127.0.0.1:11300") }
+    pub fn forwarder_max_queue_size() -> usize { 65536 }
 }
 
 /// Server admin block
@@ -138,16 +138,16 @@ impl Default for Logging {
 #[serde_as]
 #[derive(Deserialize)]
 pub struct Forwarder {
-    /// Hostname and port to the beanstalkd server
-    #[serde(default = "defaults::forwarder_beanstalk")]
-    pub beanstalk: String,
+    /// Maximum number of events in the queue before we start rejecting clients
+    #[serde(default = "defaults::forwarder_max_queue_size")]
+    pub max_queue_size: usize,
 }
 
 impl Default for Forwarder {
     /// Builds a default forwarder block in case none is provided
     fn default() -> Self {
         return Self {
-            beanstalk: defaults::forwarder_beanstalk(),
+            max_queue_size: defaults::forwarder_max_queue_size(),
         }
     }
 }

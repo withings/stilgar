@@ -13,14 +13,6 @@ services:
     environment:
       - "STILGAR_CONFIG=stilgar.dev.yml"
 
-  beanstalkd:
-    image: schickling/beanstalkd
-    tty: true
-    expose:
-      - 11300
-    ports:
-      - 11300:11300
-
   clickhouse:
     build: test/clickhouse
     tty: true
@@ -58,7 +50,6 @@ services:
       - ./test/tester:/home/tester/tester
     depends_on:
       - stilgar
-      - beanstalkd
       - clickhouse
 
 volumes:

@@ -7,7 +7,6 @@ import time
 def get_service(name):
     services = {
         "stilgar": 8080,
-        "beanstalkd": 11300,
         "clickhouse": 9100,
     }
 
@@ -25,7 +24,7 @@ def get_service_url(name, *args):
 def wait_for_all():
     while True:
         all_up = True
-        for service in ('stilgar', 'beanstalkd', 'clickhouse'):
+        for service in ('stilgar', 'clickhouse'):
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 parser_port = get_service(service)

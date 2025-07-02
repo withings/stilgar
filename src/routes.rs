@@ -15,7 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>. */
 
 use crate::destinations::DestinationStatistics;
-use crate::forwarder::{ForwarderEnvelope, ForwardingChannelMessage, StatusRequestMessage};
+use crate::forwarder::{ForwarderEnvelope, ForwardingChannelAdminMessage, StatusRequestMessage};
 use crate::events::any::{AnyEvent, EventOrBatch, set_common_attribute};
 use crate::events::rejections::explain_rejection;
 use crate::webstats::{WebStatsEvent, send_stats_event, fetch_stats};
@@ -27,7 +27,6 @@ use tokio::sync::{oneshot, mpsc};
 use chrono::Utc;
 use serde_json;
 use warp;
-use mamenoki::BeanstalkClient;
 
 /// Rewrites a single event's received_at
 fn overwrite_event_received_at(event: &mut AnyEvent) {
@@ -45,8 +44,8 @@ fn overwrite_any_received_at(event_or_batch: &mut EventOrBatch) {
     }
 }
 
-/// Actual event route: adds the received_at field and tries to reserialise for beanstalkd
-pub async fn event_or_batch(beanstalk: BeanstalkClient,
+/// Actual event route: adds the received_at field and sends the event to the forwarder
+pub async fn event_or_batch(forwarder: mpsc::Sender<ForwarderEnvelope>,
                             stats: mpsc::Sender<WebStatsEvent>,
                             request_info: middleware::BasicRequestInfo,
                             write_key: String,
@@ -61,6 +60,8 @@ pub async fn event_or_batch(beanstalk: BeanstalkClient,
         request_info.client_ip,
         request_info.length,
     );
+
+    send_stats_event(&stats, WebStatsEvent::EventReceived).await;
 
     let event_or_batch = serde_json::from_str::<EventOrBatch>(&payload);
     let mut event_or_batch = match event_or_batch {
@@ -84,30 +85,17 @@ pub async fn event_or_batch(beanstalk: BeanstalkClient,
         }
     };
 
-    /* Re-serialise the job for beanstalkd */
+    /* Send the job to the forwarder channel, reject client if full */
     let mid = event_or_batch.message_id();
     overwrite_any_received_at(&mut event_or_batch);
     let envelope = ForwarderEnvelope { write_key, event_or_batch };
-    let job_payload = match serde_json::to_string(&envelope) {
-        Ok(j) => j,
-        Err(e) => {
-            log::debug!(mid; "failed to re-serialise event: {}", e);
-            return Ok(warp::reply::with_status("KO", warp::http::StatusCode::INTERNAL_SERVER_ERROR));
-        }
-    };
 
-    log::trace!(mid; "enqueuing job: {}", &job_payload);
+    log::trace!(mid; "enqueuing job: {}", &payload);
 
-    /* Send to beanstalkd */
-    let (body, status) = match beanstalk.put(job_payload).await {
-        Ok(_) => ("OK", warp::http::StatusCode::OK),
-        Err(e) => {
-            log::warn!(mid; "could not enqueue job: {}", e);
-            ("KO", warp::http::StatusCode::INTERNAL_SERVER_ERROR)
-        },
-    };
-
-    send_stats_event(&stats, WebStatsEvent::EventReceived).await;
+    let (body, status) = forwarder.try_send(envelope)
+        .map(|_| ("OK", warp::http::StatusCode::OK))
+        .inspect_err(|e| log::debug!(mid; "failed to queue event for forwarding: {}", e))
+        .unwrap_or(("KO", warp::http::StatusCode::SERVICE_UNAVAILABLE));
 
     log::info!(
         rid, mid;
@@ -150,16 +138,16 @@ pub async fn ping() -> Result<impl warp::Reply, warp::Rejection> {
 
 
 /// Status route
-pub async fn status(forwarder_channel: mpsc::Sender<ForwardingChannelMessage>,
-                    beanstalk: BeanstalkClient,
+pub async fn status(forwarder_events_channel: mpsc::Sender<ForwarderEnvelope>,
+                    forwarder_admin_channel: mpsc::Sender<ForwardingChannelAdminMessage>,
                     stats: mpsc::Sender<WebStatsEvent>) -> Result<impl warp::Reply, warp::Rejection> {
     let mut all_stats: HashMap<String, serde_json::Value> = HashMap::new();
-    let mut all_good = true;
 
     /* web stats */
     let stats = fetch_stats(stats).await;
     all_stats.insert("events".into(), serde_json::json!({
         "up_since": stats.up_since.to_rfc3339(),
+        "queue_capacity": forwarder_events_channel.capacity(),
         "received": stats.events_received,
         "forwarded": {
             "aliases": stats.aliases,
@@ -173,37 +161,16 @@ pub async fn status(forwarder_channel: mpsc::Sender<ForwardingChannelMessage>,
 
     /* destination stats */
     let (dest_stats_tx, dest_stats_rx) = oneshot::channel::<HashMap<String, DestinationStatistics>>();
-    forwarder_channel.send(ForwardingChannelMessage::Stats(StatusRequestMessage { return_tx: dest_stats_tx })).await
+    forwarder_admin_channel.send(ForwardingChannelAdminMessage::Stats(StatusRequestMessage { return_tx: dest_stats_tx })).await
         .expect("failed to send stats request to the forwarding channel");
     let destination_stats = dest_stats_rx.await.expect("failed to receive destination stats from the forwarding channel");
     for (destination_name, destination_stats) in destination_stats.into_iter() {
         all_stats.insert(destination_name, serde_json::to_value(destination_stats).expect("failed to parse destination statistics"));
     }
 
-    /* beanstalkd stats */
-    match beanstalk.stats().await {
-        Ok(stats) => {
-            all_stats.insert("beanstalkd".into(), serde_json::json!({
-                "status": "OK",
-                "current_connections": stats.current_connections,
-                "jobs": {
-                    "ready": stats.jobs_ready,
-                    "reserved": stats.jobs_reserved,
-                    "delayed": stats.jobs_delayed,
-                    "total": stats.total_jobs,
-                }
-            }));
-        },
-        Err(e) => {
-            all_stats.insert("beanstalkd".into(), serde_json::json!({"status": e.to_string()}));
-            all_good = false;
-        }
-    }
-
-    all_stats.insert("status".into(), (if all_good { "OK" } else { "KO" }).into());
     let json_reply = serde_json::to_value(&all_stats).expect("failed to serialise status hashmap");
     Ok(warp::reply::with_status(
         warp::reply::json(&json_reply),
-        if all_good { warp::http::status::StatusCode::OK } else { warp::http::status::StatusCode::INTERNAL_SERVER_ERROR }
+        warp::http::status::StatusCode::OK,
     ))
 }

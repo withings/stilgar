@@ -28,6 +28,7 @@ def run_and_wait(fn, *args, **kwargs):
     elif 'disable_auth' in kwargs:
         del kwargs['disable_auth']
 
+    headers['X-Request-Id'] = 'abcd'
     ret = fn(*args, **kwargs)
     wait()
     return ret
