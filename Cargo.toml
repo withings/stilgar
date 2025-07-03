@@ -7,7 +7,7 @@ authors = [
     "Julien Kritter <julien.kritter@withings.com>",
 ]
 readme = "README.md"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 default-run = "stilgar"
 homepage = "https://github.com/withings/stilgar"
