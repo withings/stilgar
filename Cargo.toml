@@ -45,7 +45,7 @@ itertools = "0.14"
 lazy_static = "1.4"
 log = { version = "0.4", features = ["serde", "kv_unstable_std"] }
 openssl = { version = "0.10", features = ["vendored"] }
-prost = "0.14"
+prost = "0.13"
 regex = "1"
 secular = { version = "1.0", features = ["bmp"] }
 serde = { version = ">= 1.0.158", features = ["derive", "rc"] }
@@ -54,12 +54,12 @@ serde_with = "3"
 serde_yaml = "0.9"
 thiserror = "2.0"
 tokio = { version = "1", features = ["full"] }
-tonic = "0.14"
+tonic = "0.13"
 twox-hash = "2.0"
-warp = "0.4"
+warp = "0.3"
 
 [build-dependencies]
-tonic-build = "0.14"
+tonic-build = "0.13"
 
 [profile.docker]
 inherits = "dev"
