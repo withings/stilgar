@@ -136,15 +136,18 @@ impl ForwardingChannel {
                 (None, Some(admin_msg)) => {
                     match admin_msg {
                         ForwardingChannelAdminMessage::Stats(stats_request) => {
-                            stats_request.return_tx.send(self.gather_stats().await)
-                                .expect("failed to respond to stats request message on oneshot channel")
+                            if let Err(e) = stats_request.return_tx.send(self.gather_stats().await) {
+                                log::warn!("failed to respond on stats request oneshot channel: {:?}", e);
+                            }
                         },
 
                         ForwardingChannelAdminMessage::Flush(flush_request) => {
                             for destination in self.destinations.iter() {
                                 destination.flush().await;
                             }
-                            flush_request.return_tx.send(()).expect("failed to acknowledge flush request on oneshot channel");
+                            if let Err(e) = flush_request.return_tx.send(()) {
+                                log::warn!("failed to acknowledge flush request on oneshot channel: {:?}", e);
+                            }
                         },
                     }
                 },
