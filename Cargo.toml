@@ -37,7 +37,7 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 directories = "6"
 flate2 = "1.0"
-flexi_logger = { git = "https://github.com/emabee/flexi_logger.git", rev = "refs/pull/182/head", features = ["kv", "syslog_writer"] }
+flexi_logger = { version = "0.31", features = ["kv", "syslog_writer"] }
 humantime = "2.1"
 indoc = "2.0"
 ipnetwork = { version = "0.21", features = ["serde"] }
@@ -45,7 +45,7 @@ itertools = "0.14"
 lazy_static = "1.4"
 log = { version = "0.4", features = ["serde", "kv_unstable_std"] }
 openssl = { version = "0.10", features = ["vendored"] }
-prost = "0.13"
+prost = "0.14"
 regex = "1"
 secular = { version = "1.0", features = ["bmp"] }
 serde = { version = ">= 1.0.158", features = ["derive", "rc"] }
@@ -54,12 +54,13 @@ serde_with = "3"
 serde_yaml = "0.9"
 thiserror = "2.0"
 tokio = { version = "1", features = ["full"] }
-tonic = "0.13"
+tonic = "0.14"
+tonic-prost = "0.14"
 twox-hash = "2.0"
 warp = "0.3"
 
 [build-dependencies]
-tonic-build = "0.13"
+tonic-prost-build = "0.14"
 
 [profile.docker]
 inherits = "dev"

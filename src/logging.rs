@@ -23,7 +23,7 @@ pub fn init_logger(log_config: &config::Logging) {
                 SyslogLineHeader::Rfc3164,
                 syslog_config.facility
             )
-                .process(syslog_config.process.as_deref())
+                .custom_process_name(syslog_config.process.as_deref())
                 .format(record_formatter)
                 .build()
                 .expect("failed to build syslog writer");
