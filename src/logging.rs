@@ -24,6 +24,7 @@ pub fn init_logger(log_config: &config::Logging) {
                 syslog_config.facility
             )
                 .custom_process_name(syslog_config.process.as_deref())
+                .max_log_level(log_config.level)
                 .format(record_formatter)
                 .build()
                 .expect("failed to build syslog writer");
