@@ -17,9 +17,10 @@ services:
     build: test/clickhouse
     tty: true
     environment:
-      - CLICKHOUSE_ADMIN_USER=myuser
-      - CLICKHOUSE_ADMIN_PASSWORD=mypassword
+      - CLICKHOUSE_USER=myuser
+      - CLICKHOUSE_PASSWORD=mypassword
       - CLICKHOUSE_DB=mydatabase
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
     volumes:
       - clickhouse_data:/bitnami/clickhouse
       - ./test/clickhouse/conf.d:/etc/clickhouse-server/conf.d
