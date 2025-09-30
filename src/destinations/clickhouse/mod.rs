@@ -89,6 +89,7 @@ pub struct Clickhouse {
     cache_idle_timeout: Duration,
     max_table_expansion: usize,
     max_table_width: usize,
+    max_parallel_queries: usize,
     identifier_regex: Regex,
 }
 
@@ -133,6 +134,11 @@ impl Destination for Clickhouse {
             .map(|v| v.as_u64().map(|u| u as usize))
             .unwrap_or(Some(cache::DEFAULT_MAX_TABLE_WIDTH))
             .ok_or(StorageError::Initialisation("max_table_width parameter should be a positive number".to_string()))?;
+        let max_parallel_queries = settings
+            .get("max_parallel_queries")
+            .map(|v| v.as_u64().map(|u| u as usize))
+            .unwrap_or(Some(primitives::DEFAULT_MAX_PARALLEL_QUERIES))
+            .ok_or(StorageError::Initialisation("max_parallel_queries parameter should be a positive number".to_string()))?;
 
         let url = format!("http://{}:{}", host, port);
         log::debug!("connected to clickhouse at {}", url);
@@ -150,6 +156,7 @@ impl Destination for Clickhouse {
             cache_idle_timeout,
             max_table_expansion,
             max_table_width,
+            max_parallel_queries,
             identifier_regex: Regex::new(r"^[a-zA-Z_][0-9a-zA-Z_]*$").expect("invalid Clickhouse idenifier REGEX"),
         };
         let clickhouse_arc = Arc::new(clickhouse);

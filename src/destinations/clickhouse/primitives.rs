@@ -22,7 +22,11 @@ use std::fmt::Debug;
 use std::collections::HashMap;
 use tokio;
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinSet;
 use async_stream::stream;
+
+/// Default maximum number of parallel queries
+pub const DEFAULT_MAX_PARALLEL_QUERIES: usize = 2;
 
 /// Network timeout when communicating with Clickhouse
 const NETWORK_TIMEOUT: u64 = 5;
@@ -36,7 +40,7 @@ pub struct NonInteractiveQuery {
     pub return_tx: oneshot::Sender<StorageResult>,
 }
 
-/// Convenience type: rows as return by the query task for a SELECT
+/// Convenience type: rows as returned by the query task for a SELECT
 pub type ResultSet = Vec<Vec<String>>;
 /// Convenience type: return type for a read query message
 pub type SelectResult = Result<ResultSet, StorageError>;
@@ -68,6 +72,13 @@ pub enum GenericQuery {
     NIO(NonInteractiveQuery),
     Select(SelectQuery),
     Insert(InsertQuery),
+}
+
+/// An enum used by the query channel to select multiple events
+#[derive(Debug)]
+enum ActiveQueryEvent {
+    ReadAvailable(SelectResult, oneshot::Sender<SelectResult>),
+    WriteComplete(StorageResult, oneshot::Sender<StorageResult>),
 }
 
 /// Struct containing basic activity statistics from Clickhouse
@@ -124,7 +135,7 @@ impl Clickhouse {
 
     /// Executes a read query (SELECT)
     ///
-    /// Stilgar hardly even does SELECTs and only does so on small
+    /// Stilgar hardly ever does SELECTs and only does so on small
     /// result sets. For this reason, this function does not stream the
     /// results: it waits for everything and returns the lot as a Vec
     async fn run_select_query(client: &mut grpc::Client, query: grpc::QueryInfo) -> SelectResult {
@@ -228,38 +239,73 @@ impl Clickhouse {
     pub async fn run_query_channel(&self, url: String, mut rx: mpsc::Receiver<GenericQuery>) {
         log::debug!("running clickhouse channel for {}", self.database);
         let mut client = Self::get_client(url.clone()).await.expect("failed to connect to Clickhouse");
+        let mut active_queries = JoinSet::new();
         log::debug!("connection to {} established", url);
 
-        while let Some(command) = rx.recv().await {
-            let error = match command {
-                GenericQuery::NIO(ddl) => {
-                    let result = Self::nio_query(&mut client, self.prepare_base(ddl.query)).await;
-                    let error = result.as_ref().err().map(|e| e.clone());
-                    ddl.return_tx.send(result).expect("failed to forward read query result to querying task");
-                    error
-                },
-                GenericQuery::Select(read) => {
-                    let result = Self::run_select_query(&mut client, self.prepare_select(&read)).await;
-                    let error = result.as_ref().err().map(|e| e.clone());
-                    read.return_tx.send(result).expect("failed to forward read query result to querying task");
-                    error
-                },
-                GenericQuery::Insert(write) => {
-                    let result = Self::run_insert_query(&mut client, self.prepare_insert(&write), write.rows_channel).await;
-                    let error = result.as_ref().err().map(|e| e.clone());
-                    write.return_tx.send(result).expect("failed to forward write query result to querying task");
-                    error
-                },
-            };
+        loop {
+            tokio::select! {
+                /* a new query has been submitted (and we've got room for it) */
+                message = rx.recv(), if active_queries.len() < self.max_parallel_queries => {
+                    let query = match message {
+                        Some(q) => q,
+                        None => break,
+                    };
 
-            if let Some(err) = error {
-                if let StorageError::Connectivity(_) = err {
-                    match Self::get_client(url.clone()).await {
-                        Ok(new_client) => {
-                            client = new_client;
-                            log::info!("successfully reconnected to clickhouse");
+                    match query {
+                        GenericQuery::NIO(ddl) => {
+                            let mut ddl_client = client.clone();
+                            let base = self.prepare_base(ddl.query);
+                            active_queries.spawn(async move {
+                                let result = Self::nio_query(&mut ddl_client, base).await;
+                                ActiveQueryEvent::WriteComplete(result, ddl.return_tx)
+                            })
                         },
-                        Err(e) => log::warn!("failed to reconnect to clickhouse, will keep current connection: {}", e)
+                        GenericQuery::Select(read) => {
+                            let mut read_client = client.clone();
+                            let select = self.prepare_select(&read);
+                            active_queries.spawn(async move {
+                                let result = Self::run_select_query(&mut read_client, select).await;
+                                ActiveQueryEvent::ReadAvailable(result, read.return_tx)
+                            })
+                        },
+                        GenericQuery::Insert(write) => {
+                            let mut write_client = client.clone();
+                            let insert = self.prepare_insert(&write);
+                            active_queries.spawn(async move {
+                                let result = Self::run_insert_query(&mut write_client, insert, write.rows_channel).await;
+                                ActiveQueryEvent::WriteComplete(result, write.return_tx)
+                            })
+                        },
+                    };
+                },
+
+                /* something has happened for one of our already-active queries */
+                event = active_queries.join_next(), if !active_queries.is_empty() => {
+                    let event = event
+                        .expect("query channel joined an empty joinset")
+                        .expect("failed to join active query in query channel");
+
+                    let error = match event {
+                        ActiveQueryEvent::ReadAvailable(rows, tx) => {
+                            let error = rows.as_ref().err().map(|e| e.clone());
+                            tx.send(rows).expect("failed to forward read query result to querying task");
+                            error
+                        },
+                        ActiveQueryEvent::WriteComplete(result, tx) => {
+                            let error = result.as_ref().err().map(|e| e.clone());
+                            tx.send(result).expect("failed to forward write query result to querying task");
+                            error
+                        },
+                    };
+
+                    if let Some(StorageError::Connectivity(_)) = error {
+                        match Self::get_client(url.clone()).await {
+                            Ok(new_client) => {
+                                client = new_client;
+                                log::info!("successfully reconnected to clickhouse");
+                            },
+                            Err(e) => log::warn!("failed to reconnect to clickhouse, will keep current connection: {}", e)
+                        }
                     }
                 }
             }
