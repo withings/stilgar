@@ -85,6 +85,7 @@ pub struct Clickhouse {
     database: String,
     username: String,
     password: String,
+    query_timeout: Duration,
     cache_threshold: usize,
     cache_idle_timeout: Duration,
     max_table_expansion: usize,
@@ -114,6 +115,11 @@ impl Destination for Clickhouse {
         let database = settings
             .get("database").ok_or(StorageError::Initialisation("missing database parameter".to_string()))?
             .as_str().ok_or(StorageError::Initialisation("database parameter should be a string".to_string()))?;
+        let query_timeout = settings
+            .get("query_timeout")
+            .map(|v| v.as_str().map(|s| humantime::parse_duration(s).ok()).flatten())
+            .unwrap_or(Some(primitives::DEFAULT_QUERY_TIMEOUT))
+            .ok_or(StorageError::Initialisation("query_timeout parameter should be a valid duration".to_string()))?;
         let cache_threshold = settings
             .get("cache_threshold")
             .map(|v| v.as_u64().map(|u| u as usize))
@@ -152,6 +158,7 @@ impl Destination for Clickhouse {
             username: username.to_string(),
             password: password.to_string(),
             database: database.to_string(),
+            query_timeout,
             cache_threshold,
             cache_idle_timeout,
             max_table_expansion,

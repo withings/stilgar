@@ -20,6 +20,7 @@ use crate::destinations::clickhouse::{Clickhouse, StorageResult, StorageError};
 
 use std::fmt::Debug;
 use std::collections::HashMap;
+use std::time::Duration;
 use tokio;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -28,8 +29,8 @@ use async_stream::stream;
 /// Default maximum number of parallel queries
 pub const DEFAULT_MAX_PARALLEL_QUERIES: usize = 2;
 
-/// Network timeout when communicating with Clickhouse
-const NETWORK_TIMEOUT: u64 = 5;
+/// Default query timeout
+pub const DEFAULT_QUERY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A query without I/O (no input rows like INSERT or results like SELECT)
 #[derive(Debug)]
@@ -114,16 +115,11 @@ impl Clickhouse {
         query_info
     }
 
-    /// Convenience function: returns a query timeout future
-    fn network_timeout_future() -> tokio::time::Sleep {
-        tokio::time::sleep(tokio::time::Duration::from_secs(NETWORK_TIMEOUT))
-    }
-
     /// Executes a non-interactive query and returns the response
-    async fn nio_query(client: &mut grpc::Client, query: grpc::QueryInfo) -> StorageResult {
+    async fn nio_query(client: &mut grpc::Client, query: grpc::QueryInfo, timeout: &Duration) -> StorageResult {
         let query_future = client.execute_query(query.clone());
         let execute = tokio::select! {
-            _ = Self::network_timeout_future() => return Err(StorageError::Connectivity("query timeout".into())),
+            _ = tokio::time::sleep(*timeout) => return Err(StorageError::Connectivity("query timeout".into())),
             exec_result = query_future => exec_result.map_err(|e| StorageError::Connectivity(e.to_string()))?,
         };
 
@@ -138,10 +134,10 @@ impl Clickhouse {
     /// Stilgar hardly ever does SELECTs and only does so on small
     /// result sets. For this reason, this function does not stream the
     /// results: it waits for everything and returns the lot as a Vec
-    async fn run_select_query(client: &mut grpc::Client, query: grpc::QueryInfo) -> SelectResult {
+    async fn run_select_query(client: &mut grpc::Client, query: grpc::QueryInfo, timeout: &Duration) -> SelectResult {
         let query_future = client.execute_query_with_stream_output(query.clone());
         let mut execute = tokio::select! {
-            _ = Self::network_timeout_future() => return Err(StorageError::Connectivity("query timeout".into())),
+            _ = tokio::time::sleep(*timeout) => return Err(StorageError::Connectivity("query timeout".into())),
             exec_result = query_future => exec_result.map_err(|e| StorageError::Connectivity(e.to_string()))?,
         };
 
@@ -176,6 +172,7 @@ impl Clickhouse {
     async fn run_insert_query(
         client: &mut grpc::Client,
         initial: grpc::QueryInfo,
+        timeout: &Duration,
         mut rows_channel: InsertQueryReceiver) -> StorageResult {
         let query_str = initial.query.clone();
 
@@ -218,7 +215,7 @@ impl Clickhouse {
         /* Actually run the query */
         let query_future = client.execute_query_with_stream_input(stream);
         let execute = tokio::select! {
-            _ = Self::network_timeout_future() => return Err(StorageError::Connectivity("query timeout".into())),
+            _ = tokio::time::sleep(*timeout) => return Err(StorageError::Connectivity("query timeout".into())),
             exec_result = query_future => exec_result.map_err(|e| StorageError::Connectivity(e.to_string()))?,
         };
 
@@ -228,9 +225,9 @@ impl Clickhouse {
         }
     }
 
-    async fn get_client(url: String) -> Result<grpc::Client, StorageError> {
+    async fn get_client(url: String, timeout: &Duration) -> Result<grpc::Client, StorageError> {
         tokio::select! {
-            _ = Self::network_timeout_future() => return Err(StorageError::Connectivity("connect timeout".into())),
+            _ = tokio::time::sleep(*timeout) => return Err(StorageError::Connectivity("connect timeout".into())),
             connect_result = grpc::Client::connect(url) => connect_result.map_err(|e| StorageError::Connectivity(e.to_string())),
         }
     }
@@ -238,7 +235,8 @@ impl Clickhouse {
     /// Query task: receives query messages and processes them
     pub async fn run_query_channel(&self, url: String, mut rx: mpsc::Receiver<GenericQuery>) {
         log::debug!("running clickhouse channel for {}", self.database);
-        let mut client = Self::get_client(url.clone()).await.expect("failed to connect to Clickhouse");
+        let query_timeout = self.query_timeout.clone();
+        let mut client = Self::get_client(url.clone(), &query_timeout).await.expect("failed to connect to Clickhouse");
         let mut active_queries = JoinSet::new();
         log::debug!("connection to {} established", url);
 
@@ -256,7 +254,7 @@ impl Clickhouse {
                             let mut ddl_client = client.clone();
                             let base = self.prepare_base(ddl.query);
                             active_queries.spawn(async move {
-                                let result = Self::nio_query(&mut ddl_client, base).await;
+                                let result = Self::nio_query(&mut ddl_client, base, &query_timeout).await;
                                 ActiveQueryEvent::WriteComplete(result, ddl.return_tx)
                             })
                         },
@@ -264,7 +262,7 @@ impl Clickhouse {
                             let mut read_client = client.clone();
                             let select = self.prepare_select(&read);
                             active_queries.spawn(async move {
-                                let result = Self::run_select_query(&mut read_client, select).await;
+                                let result = Self::run_select_query(&mut read_client, select, &query_timeout).await;
                                 ActiveQueryEvent::ReadAvailable(result, read.return_tx)
                             })
                         },
@@ -272,7 +270,7 @@ impl Clickhouse {
                             let mut write_client = client.clone();
                             let insert = self.prepare_insert(&write);
                             active_queries.spawn(async move {
-                                let result = Self::run_insert_query(&mut write_client, insert, write.rows_channel).await;
+                                let result = Self::run_insert_query(&mut write_client, insert, &query_timeout, write.rows_channel).await;
                                 ActiveQueryEvent::WriteComplete(result, write.return_tx)
                             })
                         },
@@ -299,7 +297,7 @@ impl Clickhouse {
                     };
 
                     if let Some(StorageError::Connectivity(_)) = error {
-                        match Self::get_client(url.clone()).await {
+                        match Self::get_client(url.clone(), &query_timeout).await {
                             Ok(new_client) => {
                                 client = new_client;
                                 log::info!("successfully reconnected to clickhouse");
