@@ -127,6 +127,7 @@ async fn main() {
         .map(move || (forwarder_status_events_handle.clone(), forwarder_status_admin_handle.clone()))
         .untuple_one()
         .and(with_stats(web_stats_handle.clone()))
+        .and(warp::query::<routes::StatusQuery>())
         .and_then(routes::status);
 
     /* Ping (root) route for monitoring */

@@ -23,6 +23,7 @@ use crate::middleware;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{oneshot, mpsc};
 use chrono::Utc;
 use serde_json;
@@ -137,10 +138,18 @@ pub async fn ping() -> Result<impl warp::Reply, warp::Rejection> {
 }
 
 
+/// Optional query string for the status route
+#[derive(Serialize, Deserialize)]
+pub struct StatusQuery {
+    with_destinations: Option<bool>,
+}
+
+
 /// Status route
 pub async fn status(forwarder_events_channel: mpsc::Sender<ForwarderEnvelope>,
                     forwarder_admin_channel: mpsc::Sender<ForwardingChannelAdminMessage>,
-                    stats: mpsc::Sender<WebStatsEvent>) -> Result<impl warp::Reply, warp::Rejection> {
+                    stats: mpsc::Sender<WebStatsEvent>,
+                    query: StatusQuery) -> Result<impl warp::Reply, warp::Rejection> {
     let mut all_stats: HashMap<String, serde_json::Value> = HashMap::new();
 
     /* web stats */
@@ -159,13 +168,15 @@ pub async fn status(forwarder_events_channel: mpsc::Sender<ForwarderEnvelope>,
         }
     }));
 
-    /* destination stats */
-    let (dest_stats_tx, dest_stats_rx) = oneshot::channel::<HashMap<String, DestinationStatistics>>();
-    forwarder_admin_channel.send(ForwardingChannelAdminMessage::Stats(StatusRequestMessage { return_tx: dest_stats_tx })).await
-        .expect("failed to send stats request to the forwarding channel");
-    let destination_stats = dest_stats_rx.await.expect("failed to receive destination stats from the forwarding channel");
-    for (destination_name, destination_stats) in destination_stats.into_iter() {
-        all_stats.insert(destination_name, serde_json::to_value(destination_stats).expect("failed to parse destination statistics"));
+    /* destination stats, if requested */
+    if query.with_destinations.unwrap_or(false) {
+        let (dest_stats_tx, dest_stats_rx) = oneshot::channel::<HashMap<String, DestinationStatistics>>();
+        forwarder_admin_channel.send(ForwardingChannelAdminMessage::Stats(StatusRequestMessage { return_tx: dest_stats_tx })).await
+            .expect("failed to send stats request to the forwarding channel");
+        let destination_stats = dest_stats_rx.await.expect("failed to receive destination stats from the forwarding channel");
+        for (destination_name, destination_stats) in destination_stats.into_iter() {
+            all_stats.insert(destination_name, serde_json::to_value(destination_stats).expect("failed to parse destination statistics"));
+        }
     }
 
     let json_reply = serde_json::to_value(&all_stats).expect("failed to serialise status hashmap");
