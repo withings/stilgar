@@ -180,7 +180,7 @@ pub fn admin_auth_filter(admin: Arc<Option<Admin>>) -> impl Filter<Extract = (),
 pub fn cors(origins: &Vec<String>) -> warp::cors::Builder {
     warp::cors()
         .allow_methods(&[Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers(["authorization", "anonymousid", "content-type"])
+        .allow_headers(["authorization", "anonymousid", "content-type", "sentat"])
         .allow_credentials(true)
         .allow_origins(origins.iter().map(|s| s.as_str()))
 }
