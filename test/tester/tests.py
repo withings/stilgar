@@ -168,7 +168,7 @@ def test_clickhouse_table_reshaping_no_trunc():
         assert store_page.status_code == 200, "unexpected status for value %r: %d" % (value, store_page.status_code)
 
     pages = get_all("pages")
-    assert len(pages) == 2, "expected 2 pages in DB, got %d" % (len(pages), type_name)
+    assert len(pages) == 2, "expected 2 pages in DB, got %d" % len(pages)
     assert all(isinstance(p["expanded_property"], float) for p in pages), "expanded property hasn't stuck to float"
 
 
